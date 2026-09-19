@@ -18,64 +18,95 @@ app.use(express.urlencoded({ extended: true }));
 // CONFIG
 // =====================================================
 
+const railwayBase = process.env.RAILWAY_PUBLIC_DOMAIN
+  ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}`
+  : null;
+
 const cfg = {
   port: Number(process.env.PORT || 3000),
 
   base:
     process.env.BASE_URL ||
-    process.env.RAILWAY_PUBLIC_DOMAIN
-      ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}`
-      : 'http://localhost:3000',
+    railwayBase ||
+    'http://localhost:3000',
 
-  handle: process.env.YOUTUBE_CHANNEL_HANDLE || '@KindCrafted-m4q',
+  handle:
+    process.env.YOUTUBE_CHANNEL_HANDLE ||
+    '@KindCrafted-m4q',
 
   phrase:
     process.env.VERIFY_PHRASE ||
     'CRAFTED-MANAGER-VERIFY-2026',
 
-  clientId: process.env.GOOGLE_CLIENT_ID,
+  clientId:
+    process.env.GOOGLE_CLIENT_ID,
 
-  clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+  clientSecret:
+    process.env.GOOGLE_CLIENT_SECRET,
 
   redirectUri:
     process.env.GOOGLE_REDIRECT_URI ||
     `${
       process.env.BASE_URL ||
-      (process.env.RAILWAY_PUBLIC_DOMAIN
-        ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}`
-        : 'http://localhost:3000')
+      railwayBase ||
+      'http://localhost:3000'
     }/oauth2callback`,
 
-  geminiKey: process.env.GEMINI_API_KEY,
+  geminiKey:
+    process.env.GEMINI_API_KEY,
 
+  // Optional override.
+  // If this is blank, the app automatically finds
+  // a currently available Gemini generateContent model.
   geminiModel:
-    process.env.GEMINI_MODEL ||
-    'gemini-2.5-flash',
+    process.env.GEMINI_MODEL || '',
 
   postsPerDay: Math.max(
     1,
-    Number(process.env.POSTS_PER_DAY || 2)
+    Math.min(
+      5,
+      Number(process.env.POSTS_PER_DAY || 2)
+    )
   ),
 
   tz:
     process.env.TIMEZONE ||
     'Pacific/Honolulu',
 
-  sessionSecret:
-    process.env.SESSION_SECRET ||
-    'change-me'
+  // How many recent PUBLIC videos should influence
+  // posting-time recommendations.
+  recentVideoLimit: Math.max(
+    5,
+    Number(
+      process.env.RECENT_VIDEO_LIMIT || 30
+    )
+  ),
+
+  // Don't schedule too close to the current time.
+  scheduleBufferMinutes: Math.max(
+    30,
+    Number(
+      process.env.SCHEDULE_BUFFER_MINUTES || 60
+    )
+  )
 };
 
 // =====================================================
 // DATABASE
 // =====================================================
 
-const dataDir = path.join(__dirname, 'data');
+const dataDir = path.join(
+  __dirname,
+  'data'
+);
 
 if (!fs.existsSync(dataDir)) {
-  fs.mkdirSync(dataDir, {
-    recursive: true
-  });
+  fs.mkdirSync(
+    dataDir,
+    {
+      recursive: true
+    }
+  );
 }
 
 const databasePath = path.join(
@@ -87,7 +118,8 @@ console.log(
   `[database] Opening database at ${databasePath}`
 );
 
-const db = new Database(databasePath);
+const db =
+  new Database(databasePath);
 
 db.exec(`
 CREATE TABLE IF NOT EXISTS kv (
@@ -121,16 +153,18 @@ CREATE TABLE IF NOT EXISTS performance (
 );
 `);
 
-console.log('[database] Database ready');
+console.log(
+  '[database] Database ready'
+);
 
-const getKV = (k) =>
+const getKV = (key) =>
   db
     .prepare(
       'SELECT v FROM kv WHERE k=?'
     )
-    .get(k)?.v;
+    .get(key)?.v;
 
-const setKV = (k, v) =>
+const setKV = (key, value) =>
   db
     .prepare(`
       INSERT INTO kv(k,v)
@@ -138,7 +172,10 @@ const setKV = (k, v) =>
       ON CONFLICT(k)
       DO UPDATE SET v=excluded.v
     `)
-    .run(k, String(v));
+    .run(
+      key,
+      String(value)
+    );
 
 // =====================================================
 // GOOGLE OAUTH
@@ -155,7 +192,8 @@ function oauth() {
 function authed() {
   const o = oauth();
 
-  const raw = getKV('tokens');
+  const raw =
+    getKV('tokens');
 
   if (!raw) {
     throw new Error(
@@ -166,22 +204,28 @@ function authed() {
   const credentials =
     JSON.parse(raw);
 
-  o.setCredentials(credentials);
+  o.setCredentials(
+    credentials
+  );
 
-  o.on('tokens', (tokens) => {
-    const existing =
-      JSON.parse(
-        getKV('tokens') || '{}'
+  o.on(
+    'tokens',
+    (tokens) => {
+      const existing =
+        JSON.parse(
+          getKV('tokens') ||
+          '{}'
+        );
+
+      setKV(
+        'tokens',
+        JSON.stringify({
+          ...existing,
+          ...tokens
+        })
       );
-
-    setKV(
-      'tokens',
-      JSON.stringify({
-        ...existing,
-        ...tokens
-      })
-    );
-  });
+    }
+  );
 
   return o;
 }
@@ -215,9 +259,11 @@ app.get(
 
     const authUrl =
       o.generateAuthUrl({
-        access_type: 'offline',
+        access_type:
+          'offline',
 
-        prompt: 'consent',
+        prompt:
+          'consent',
 
         scope: [
           'https://www.googleapis.com/auth/youtube.force-ssl',
@@ -225,7 +271,9 @@ app.get(
         ]
       });
 
-    res.redirect(authUrl);
+    res.redirect(
+      authUrl
+    );
   }
 );
 
@@ -233,7 +281,9 @@ app.get(
   '/oauth2callback',
   async (req, res) => {
     try {
-      if (!req.query.code) {
+      if (
+        !req.query.code
+      ) {
         throw new Error(
           'Google did not return an authorization code.'
         );
@@ -278,10 +328,8 @@ app.get(
 // =====================================================
 
 async function channelInfo() {
-  const y = yt();
-
   const response =
-    await y.channels.list({
+    await yt().channels.list({
       part: [
         'snippet',
         'statistics',
@@ -312,9 +360,10 @@ async function verifyDescription() {
     '';
 
   return {
-    ok: description.includes(
-      cfg.phrase
-    ),
+    ok:
+      description.includes(
+        cfg.phrase
+      ),
 
     channel
   };
@@ -329,8 +378,10 @@ async function allOwnedVideos() {
     await channelInfo();
 
   const uploads =
-    channel.contentDetails
-      .relatedPlaylists.uploads;
+    channel
+      .contentDetails
+      .relatedPlaylists
+      .uploads;
 
   let pageToken;
 
@@ -338,29 +389,40 @@ async function allOwnedVideos() {
 
   do {
     const response =
-      await yt().playlistItems.list({
-        part: [
-          'contentDetails'
-        ],
+      await yt()
+        .playlistItems
+        .list({
+          part: [
+            'contentDetails'
+          ],
 
-        playlistId: uploads,
+          playlistId:
+            uploads,
 
-        maxResults: 50,
+          maxResults:
+            50,
 
-        pageToken
-      });
+          pageToken
+        });
 
     ids.push(
-      ...(response.data.items || [])
+      ...(
+        response.data.items ||
+        []
+      )
         .map(
           (item) =>
-            item.contentDetails
+            item
+              .contentDetails
               .videoId
         )
+        .filter(Boolean)
     );
 
     pageToken =
-      response.data.nextPageToken;
+      response
+        .data
+        .nextPageToken;
 
   } while (pageToken);
 
@@ -372,23 +434,28 @@ async function allOwnedVideos() {
     i += 50
   ) {
     const response =
-      await yt().videos.list({
-        part: [
-          'snippet',
-          'status',
-          'statistics',
-          'contentDetails'
-        ],
+      await yt()
+        .videos
+        .list({
+          part: [
+            'snippet',
+            'status',
+            'statistics',
+            'contentDetails'
+          ],
 
-        id: ids.slice(
-          i,
-          i + 50
-        )
-      });
+          id:
+            ids.slice(
+              i,
+              i + 50
+            )
+        });
 
     videos.push(
-      ...(response.data.items ||
-        [])
+      ...(
+        response.data.items ||
+        []
+      )
     );
   }
 
@@ -396,183 +463,817 @@ async function allOwnedVideos() {
 }
 
 // =====================================================
-// VIDEO PERFORMANCE
+// HELPERS
 // =====================================================
 
-function ageHours(iso) {
-  return (
-    Date.now() -
-    new Date(iso).getTime()
-  ) / 36e5;
+function numeric(
+  value
+) {
+  const n =
+    Number(value || 0);
+
+  return Number.isFinite(n)
+    ? n
+    : 0;
 }
 
-function scoreVideo(video) {
-  const hours = Math.max(
+function ageHours(
+  iso
+) {
+  if (!iso) {
+    return 1;
+  }
+
+  return Math.max(
     1,
-    ageHours(
-      video.snippet.publishedAt
-    )
+    (
+      Date.now() -
+      new Date(iso)
+        .getTime()
+    ) / 36e5
   );
+}
+
+function ageDays(
+  iso
+) {
+  return (
+    ageHours(iso) /
+    24
+  );
+}
+
+// =====================================================
+// RECENT VIDEO PERFORMANCE SCORE
+// =====================================================
+
+function rawPerformanceScore(
+  video
+) {
+  const hours =
+    ageHours(
+      video
+        .snippet
+        ?.publishedAt
+    );
 
   const views =
-    Number(
-      video.statistics
-        ?.viewCount || 0
+    numeric(
+      video
+        .statistics
+        ?.viewCount
     );
 
   const likes =
-    Number(
-      video.statistics
-        ?.likeCount || 0
+    numeric(
+      video
+        .statistics
+        ?.likeCount
     );
 
   const comments =
-    Number(
-      video.statistics
-        ?.commentCount || 0
+    numeric(
+      video
+        .statistics
+        ?.commentCount
+    );
+
+  /*
+   * Performance is normalized by age so a very old
+   * video doesn't automatically beat a newer upload
+   * just because it has accumulated more total views.
+   */
+  const viewVelocity =
+    views /
+    Math.max(
+      6,
+      hours
+    );
+
+  const likeVelocity =
+    likes /
+    Math.max(
+      6,
+      hours
+    );
+
+  const commentVelocity =
+    comments /
+    Math.max(
+      6,
+      hours
     );
 
   return (
-    views / hours +
-    likes * 2 / hours +
-    comments * 3 / hours
+    viewVelocity +
+    likeVelocity * 4 +
+    commentVelocity * 8
+  );
+}
+
+function recencyWeight(
+  video
+) {
+  const days =
+    Math.max(
+      0,
+      ageDays(
+        video
+          .snippet
+          ?.publishedAt
+      )
+    );
+
+  /*
+   * Recent uploads matter more.
+   *
+   * Today      ~ 1.00
+   * 7 days     ~ 0.77
+   * 30 days    ~ 0.37
+   * 60 days    ~ 0.14
+   */
+  return Math.exp(
+    -days / 30
+  );
+}
+
+function weightedVideoScore(
+  video
+) {
+  return (
+    rawPerformanceScore(
+      video
+    ) *
+    recencyWeight(
+      video
+    )
   );
 }
 
 // =====================================================
-// BEST POSTING HOURS
+// HAWAII / LOCAL TIME HELPERS
 // =====================================================
 
-function bestHours(videos) {
-  const publicVideos =
+function localParts(
+  date
+) {
+  const formatter =
+    new Intl.DateTimeFormat(
+      'en-US',
+      {
+        timeZone:
+          cfg.tz,
+
+        year:
+          'numeric',
+
+        month:
+          '2-digit',
+
+        day:
+          '2-digit',
+
+        hour:
+          '2-digit',
+
+        minute:
+          '2-digit',
+
+        hourCycle:
+          'h23'
+      }
+    );
+
+  return Object.fromEntries(
+    formatter
+      .formatToParts(
+        date
+      )
+      .filter(
+        (part) =>
+          part.type !==
+          'literal'
+      )
+      .map(
+        (part) => [
+          part.type,
+          part.value
+        ]
+      )
+  );
+}
+
+function localMinuteOfDay(
+  iso
+) {
+  const parts =
+    localParts(
+      new Date(iso)
+    );
+
+  return (
+    Number(parts.hour) *
+      60 +
+    Number(parts.minute)
+  );
+}
+
+function circularMinuteDistance(
+  a,
+  b
+) {
+  const difference =
+    Math.abs(a - b);
+
+  return Math.min(
+    difference,
+    1440 - difference
+  );
+}
+
+// =====================================================
+// CALCULATE BEST POSTING TIMES
+// =====================================================
+
+function bestPostingTimes(
+  videos
+) {
+  /*
+   * Only PUBLIC videos can teach us when successful
+   * publishing happened.
+   *
+   * Newest videos are selected first.
+   */
+  const recentPublic =
     videos
       .filter(
         (video) =>
           video.status
-            .privacyStatus ===
+            ?.privacyStatus ===
             'public' &&
           video.snippet
-            .publishedAt
+            ?.publishedAt
       )
-      .map((video) => {
-        const hour =
-          Number(
-            new Intl.DateTimeFormat(
-              'en-US',
-              {
-                timeZone: cfg.tz,
-                hour: 'numeric',
-                hour12: false
-              }
-            ).format(
-              new Date(
-                video.snippet
-                  .publishedAt
-              )
-            )
-          ) % 24;
+      .sort(
+        (a, b) =>
+          new Date(
+            b.snippet
+              .publishedAt
+          ) -
+          new Date(
+            a.snippet
+              .publishedAt
+          )
+      )
+      .slice(
+        0,
+        cfg.recentVideoLimit
+      );
 
-        return {
-          h: hour,
-          s: scoreVideo(video)
-        };
-      });
+  /*
+   * If there isn't enough history yet, use sensible
+   * temporary slots. These disappear once enough
+   * channel data exists.
+   */
+  if (
+    recentPublic.length ===
+    0
+  ) {
+    return [
+      {
+        minuteOfDay:
+          12 * 60,
+        score:
+          0,
+        samples:
+          0,
+        fallback:
+          true
+      },
+      {
+        minuteOfDay:
+          18 * 60,
+        score:
+          0,
+        samples:
+          0,
+        fallback:
+          true
+      }
+    ].slice(
+      0,
+      cfg.postsPerDay
+    );
+  }
 
-  const aggregate =
+  /*
+   * Group videos into 30-minute posting windows.
+   *
+   * Example:
+   * 4:12 PM -> 4:00 PM bucket
+   * 4:44 PM -> 4:30 PM bucket
+   */
+  const buckets =
     new Map();
 
   for (
-    const item of publicVideos
+    const video of
+      recentPublic
   ) {
-    const current =
-      aggregate.get(item.h) || {
-        sum: 0,
-        n: 0
+    const minute =
+      localMinuteOfDay(
+        video
+          .snippet
+          .publishedAt
+      );
+
+    const bucket =
+      Math.round(
+        minute / 30
+      ) * 30 %
+      1440;
+
+    const score =
+      weightedVideoScore(
+        video
+      );
+
+    const existing =
+      buckets.get(
+        bucket
+      ) || {
+        totalScore:
+          0,
+
+        totalWeight:
+          0,
+
+        samples:
+          0
       };
 
-    current.sum += item.s;
-    current.n++;
+    const weight =
+      recencyWeight(
+        video
+      );
 
-    aggregate.set(
-      item.h,
-      current
+    existing.totalScore +=
+      score;
+
+    existing.totalWeight +=
+      weight;
+
+    existing.samples++;
+
+    buckets.set(
+      bucket,
+      existing
     );
   }
 
   const ranked =
-    [...aggregate]
-      .map(([h, a]) => ({
-        h,
-        avg: a.sum / a.n,
-        n: a.n
-      }))
+    [...buckets]
+      .map(
+        ([
+          minuteOfDay,
+          info
+        ]) => ({
+          minuteOfDay,
+
+          /*
+           * Weighted average + small confidence bonus
+           * for slots supported by multiple videos.
+           */
+          score:
+            (
+              info.totalScore /
+              Math.max(
+                0.01,
+                info.totalWeight
+              )
+            ) *
+            (
+              1 +
+              Math.min(
+                0.25,
+                (
+                  info.samples -
+                  1
+                ) *
+                0.05
+              )
+            ),
+
+          samples:
+            info.samples,
+
+          fallback:
+            false
+        })
+      )
       .sort(
         (a, b) =>
-          b.avg - a.avg
+          b.score -
+          a.score
       );
 
-  const chosen = [];
+  const selected =
+    [];
 
+  /*
+   * Don't choose two posting times that are almost
+   * identical. Aim for at least 3 hours apart.
+   */
   for (
-    const item of ranked
+    const candidate of
+      ranked
   ) {
-    if (
-      chosen.every(
-        (hour) =>
-          Math.min(
-            Math.abs(
-              hour - item.h
-            ),
-            24 -
-              Math.abs(
-                hour - item.h
-              )
-          ) >= 4
-      )
-    ) {
-      chosen.push(item.h);
+    const farEnough =
+      selected.every(
+        (chosen) =>
+          circularMinuteDistance(
+            chosen.minuteOfDay,
+            candidate.minuteOfDay
+          ) >=
+          180
+      );
+
+    if (farEnough) {
+      selected.push(
+        candidate
+      );
     }
 
     if (
-      chosen.length >=
+      selected.length >=
       cfg.postsPerDay
     ) {
       break;
     }
   }
 
-  const fallbacks = [
-    12,
-    18,
-    9,
-    21
-  ];
-
-  for (
-    const fallback of
-      fallbacks
+  /*
+   * If channel history doesn't provide enough
+   * separated times, use the next strongest buckets.
+   */
+  if (
+    selected.length <
+    cfg.postsPerDay
   ) {
-    if (
-      chosen.length <
-        cfg.postsPerDay &&
-      !chosen.includes(
-        fallback
-      )
+    for (
+      const candidate of
+        ranked
     ) {
-      chosen.push(
-        fallback
+      if (
+        selected.some(
+          (chosen) =>
+            chosen.minuteOfDay ===
+            candidate.minuteOfDay
+        )
+      ) {
+        continue;
+      }
+
+      selected.push(
+        candidate
       );
+
+      if (
+        selected.length >=
+        cfg.postsPerDay
+      ) {
+        break;
+      }
     }
   }
 
-  return chosen
-    .sort(
-      (a, b) => a - b
-    )
+  /*
+   * Very small channels may only have one historical
+   * posting time. Add temporary fallback slots.
+   */
+  const fallbackMinutes = [
+    12 * 60,
+    18 * 60,
+    9 * 60,
+    21 * 60
+  ];
+
+  for (
+    const minute of
+      fallbackMinutes
+  ) {
+    if (
+      selected.length >=
+      cfg.postsPerDay
+    ) {
+      break;
+    }
+
+    if (
+      selected.every(
+        (chosen) =>
+          circularMinuteDistance(
+            chosen.minuteOfDay,
+            minute
+          ) >=
+          180
+      )
+    ) {
+      selected.push({
+        minuteOfDay:
+          minute,
+
+        score:
+          0,
+
+        samples:
+          0,
+
+        fallback:
+          true
+      });
+    }
+  }
+
+  return selected
     .slice(
       0,
       cfg.postsPerDay
+    )
+    .sort(
+      (a, b) =>
+        a.minuteOfDay -
+        b.minuteOfDay
     );
+}
+
+// =====================================================
+// BACKWARD COMPATIBILITY FOR DASHBOARD
+// =====================================================
+
+function bestHours(
+  videos
+) {
+  /*
+   * Your current HTML dashboard expects an array
+   * of numeric hours.
+   *
+   * We keep that response working while also exposing
+   * detailed recommendedTimes below.
+   */
+  return bestPostingTimes(
+    videos
+  ).map(
+    (slot) =>
+      Number(
+        (
+          slot.minuteOfDay /
+          60
+        ).toFixed(2)
+      )
+  );
+}
+
+function recommendedTimesForApi(
+  videos
+) {
+  return bestPostingTimes(
+    videos
+  ).map(
+    (slot) => {
+      const hour =
+        Math.floor(
+          slot.minuteOfDay /
+          60
+        );
+
+      const minute =
+        slot.minuteOfDay %
+        60;
+
+      return {
+        hour,
+        minute,
+        minuteOfDay:
+          slot.minuteOfDay,
+        score:
+          Number(
+            slot.score.toFixed(
+              3
+            )
+          ),
+        samples:
+          slot.samples,
+        fallback:
+          slot.fallback
+      };
+    }
+  );
+}
+
+// =====================================================
+// TIME ZONE OFFSET
+// =====================================================
+
+function timezoneOffsetMs(
+  date,
+  timeZone
+) {
+  const parts =
+    new Intl.DateTimeFormat(
+      'en-US',
+      {
+        timeZone,
+        year:
+          'numeric',
+        month:
+          '2-digit',
+        day:
+          '2-digit',
+        hour:
+          '2-digit',
+        minute:
+          '2-digit',
+        second:
+          '2-digit',
+        hourCycle:
+          'h23'
+      }
+    )
+      .formatToParts(
+        date
+      );
+
+  const values =
+    Object.fromEntries(
+      parts
+        .filter(
+          (part) =>
+            part.type !==
+            'literal'
+        )
+        .map(
+          (part) => [
+            part.type,
+            part.value
+          ]
+        )
+    );
+
+  const asUTC =
+    Date.UTC(
+      Number(
+        values.year
+      ),
+      Number(
+        values.month
+      ) - 1,
+      Number(
+        values.day
+      ),
+      Number(
+        values.hour
+      ),
+      Number(
+        values.minute
+      ),
+      Number(
+        values.second
+      )
+    );
+
+  return (
+    asUTC -
+    date.getTime()
+  );
+}
+
+function zonedDateToUtc(
+  year,
+  month,
+  day,
+  hour,
+  minute,
+  timeZone
+) {
+  /*
+   * Start by pretending the requested local time is UTC,
+   * determine the zone offset, then correct it.
+   */
+  let guess =
+    new Date(
+      Date.UTC(
+        year,
+        month - 1,
+        day,
+        hour,
+        minute,
+        0,
+        0
+      )
+    );
+
+  let offset =
+    timezoneOffsetMs(
+      guess,
+      timeZone
+    );
+
+  let result =
+    new Date(
+      guess.getTime() -
+      offset
+    );
+
+  /*
+   * Recalculate once to handle DST/time-zone transitions
+   * correctly for zones other than Hawaii too.
+   */
+  offset =
+    timezoneOffsetMs(
+      result,
+      timeZone
+    );
+
+  result =
+    new Date(
+      guess.getTime() -
+      offset
+    );
+
+  return result;
+}
+
+// =====================================================
+// DATE HELPERS
+// =====================================================
+
+function localDateForDayOffset(
+  dayOffset
+) {
+  /*
+   * Use noon to avoid edge cases around date boundaries.
+   */
+  const base =
+    new Date(
+      Date.now() +
+      dayOffset *
+        86400000
+    );
+
+  const parts =
+    new Intl.DateTimeFormat(
+      'en-US',
+      {
+        timeZone:
+          cfg.tz,
+
+        year:
+          'numeric',
+
+        month:
+          '2-digit',
+
+        day:
+          '2-digit'
+      }
+    )
+      .formatToParts(
+        base
+      );
+
+  const values =
+    Object.fromEntries(
+      parts
+        .filter(
+          (part) =>
+            part.type !==
+            'literal'
+        )
+        .map(
+          (part) => [
+            part.type,
+            part.value
+          ]
+        )
+    );
+
+  return {
+    year:
+      Number(
+        values.year
+      ),
+
+    month:
+      Number(
+        values.month
+      ),
+
+    day:
+      Number(
+        values.day
+      )
+  };
 }
 
 // =====================================================
@@ -580,69 +1281,77 @@ function bestHours(videos) {
 // =====================================================
 
 function nextSlots(
-  hours,
+  postingTimes,
   count
 ) {
-  const slots = [];
+  const slots =
+    [];
 
-  const now =
-    new Date();
+  const earliestAllowed =
+    Date.now() +
+    cfg.scheduleBufferMinutes *
+      60 *
+      1000;
 
+  /*
+   * Search up to 180 days ahead.
+   */
   for (
-    let day = 0;
-    slots.length < count &&
-    day < 60;
-    day++
+    let dayOffset = 0;
+    dayOffset < 180 &&
+    slots.length < count;
+    dayOffset++
   ) {
+    const date =
+      localDateForDayOffset(
+        dayOffset
+      );
+
     for (
-      const hour of hours
+      const postingTime of
+        postingTimes
     ) {
-      const target =
-        new Date(
-          now.getTime() +
-          day * 86400000
+      const minuteOfDay =
+        typeof postingTime ===
+        'number'
+          ? Math.round(
+              postingTime *
+              60
+            )
+          : postingTime
+              .minuteOfDay;
+
+      const hour =
+        Math.floor(
+          minuteOfDay /
+          60
         );
 
-      const parts =
-        new Intl.DateTimeFormat(
-          'en-CA',
-          {
-            timeZone: cfg.tz,
-            year: 'numeric',
-            month: '2-digit',
-            day: '2-digit'
-          }
-        ).formatToParts(
-          target
-        );
+      const minute =
+        minuteOfDay %
+        60;
 
-      const values =
-        Object.fromEntries(
-          parts.map(
-            (part) => [
-              part.type,
-              part.value
-            ]
-          )
-        );
-
-      // Hawaii does not use daylight saving time.
       const slot =
-        new Date(
-          `${values.year}-${values.month}-${values.day}T${String(
-            hour
-          ).padStart(
-            2,
-            '0'
-          )}:00:00-10:00`
+        zonedDateToUtc(
+          date.year,
+          date.month,
+          date.day,
+          hour,
+          minute,
+          cfg.tz
         );
 
+      /*
+       * Never submit an already-passed or near-current
+       * publish time to YouTube.
+       */
       if (
         slot.getTime() >
-        Date.now() +
-          10 * 60 * 1000
+        earliestAllowed
       ) {
-        slots.push(slot);
+        slots.push(
+          slot
+        );
       }
 
       if (
@@ -654,7 +1363,91 @@ function nextSlots(
     }
   }
 
-  return slots;
+  return slots
+    .sort(
+      (a, b) =>
+        a.getTime() -
+        b.getTime()
+    )
+    .slice(
+      0,
+      count
+    );
+}
+
+// =====================================================
+// SAFE VIDEO STATUS UPDATE
+// =====================================================
+
+function buildScheduledStatus(
+  video,
+  publishAt
+) {
+  /*
+   * videos.update replaces mutable values in the
+   * specified "status" part, so preserve status fields
+   * we already know rather than unnecessarily wiping
+   * them.
+   */
+
+  const status = {
+    privacyStatus:
+      'private',
+
+    publishAt:
+      publishAt.toISOString()
+  };
+
+  if (
+    typeof video.status
+      ?.selfDeclaredMadeForKids ===
+    'boolean'
+  ) {
+    status.selfDeclaredMadeForKids =
+      video.status
+        .selfDeclaredMadeForKids;
+  }
+
+  if (
+    typeof video.status
+      ?.embeddable ===
+    'boolean'
+  ) {
+    status.embeddable =
+      video.status
+        .embeddable;
+  }
+
+  if (
+    video.status
+      ?.license
+  ) {
+    status.license =
+      video.status
+        .license;
+  }
+
+  if (
+    typeof video.status
+      ?.publicStatsViewable ===
+    'boolean'
+  ) {
+    status.publicStatsViewable =
+      video.status
+        .publicStatsViewable;
+  }
+
+  if (
+    typeof video.status
+      ?.containsSyntheticMedia ===
+    'boolean'
+  ) {
+    status.containsSyntheticMedia =
+      video.status
+        .containsSyntheticMedia;
+  }
+
+  return status;
 }
 
 // =====================================================
@@ -668,6 +1461,7 @@ async function schedulePrivateVideos() {
   if (!verified.ok) {
     return {
       scheduled: 0,
+
       reason:
         'Verification phrase not found in channel description'
     };
@@ -676,86 +1470,392 @@ async function schedulePrivateVideos() {
   const videos =
     await allOwnedVideos();
 
+  const postingTimes =
+    bestPostingTimes(
+      videos
+    );
+
+  /*
+   * Only processed, private, currently-unscheduled
+   * videos are candidates.
+   */
   const privateVideos =
     videos
       .filter(
         (video) =>
           video.status
-            .privacyStatus ===
+            ?.privacyStatus ===
             'private' &&
+
           !video.status
-            .publishAt &&
+            ?.publishAt &&
+
           video.status
-            .uploadStatus ===
+            ?.uploadStatus ===
             'processed'
       )
       .sort(
         (a, b) =>
           new Date(
             a.snippet
-              .publishedAt
+              ?.publishedAt ||
+            0
           ) -
           new Date(
             b.snippet
-              .publishedAt
+              ?.publishedAt ||
+            0
           )
       );
 
-  const hours =
-    bestHours(videos);
+  if (
+    privateVideos.length ===
+    0
+  ) {
+    return {
+      scheduled:
+        0,
 
+      postingTimes:
+        recommendedTimesForApi(
+          videos
+        ),
+
+      hours:
+        bestHours(
+          videos
+        ),
+
+      message:
+        'No unscheduled private videos found.'
+    };
+  }
+
+  /*
+   * Generate extra slots in case YouTube rejects a
+   * specific video because it was previously public.
+   */
   const slots =
     nextSlots(
-      hours,
-      privateVideos.length
+      postingTimes,
+      privateVideos.length +
+        10
     );
 
-  let scheduled = 0;
+  let scheduled =
+    0;
+
+  let slotIndex =
+    0;
+
+  const results =
+    [];
+
+  const errors =
+    [];
 
   for (
-    let i = 0;
-    i <
-    privateVideos.length;
-    i++
+    const video of
+      privateVideos
   ) {
-    if (!slots[i]) {
+    if (
+      slotIndex >=
+      slots.length
+    ) {
       break;
     }
 
-    const video =
-      privateVideos[i];
+    let success =
+      false;
 
-    await yt().videos.update({
-      part: ['status'],
+    /*
+     * Usually one attempt is enough.
+     * If YouTube rejects the time itself, try the next
+     * calculated future slot.
+     */
+    for (
+      let attempt = 0;
+      attempt < 3 &&
+      slotIndex < slots.length;
+      attempt++
+    ) {
+      const slot =
+        slots[
+          slotIndex
+        ];
 
-      requestBody: {
-        id: video.id,
+      slotIndex++;
 
-        status: {
-          privacyStatus:
-            'private',
+      /*
+       * Extra safety check immediately before API call.
+       */
+      if (
+        slot.getTime() <=
+        Date.now() +
+          cfg.scheduleBufferMinutes *
+            60 *
+            1000
+      ) {
+        continue;
+      }
+
+      try {
+        await yt()
+          .videos
+          .update({
+            part: [
+              'status'
+            ],
+
+            requestBody: {
+              id:
+                video.id,
+
+              status:
+                buildScheduledStatus(
+                  video,
+                  slot
+                )
+            }
+          });
+
+        scheduled++;
+
+        success =
+          true;
+
+        results.push({
+          id:
+            video.id,
+
+          title:
+            video.snippet
+              ?.title ||
+            video.id,
 
           publishAt:
-            slots[
-              i
-            ].toISOString(),
+            slot
+              .toISOString()
+        });
 
-          selfDeclaredMadeForKids:
-            Boolean(
-              video.status
-                .selfDeclaredMadeForKids
-            )
+        console.log(
+          `[schedule] Scheduled "${video.snippet?.title}" for ${slot.toISOString()}`
+        );
+
+        break;
+
+      } catch (error) {
+        const reason =
+          error.response
+            ?.data
+            ?.error
+            ?.errors?.[0]
+            ?.reason ||
+          '';
+
+        const message =
+          error.response
+            ?.data
+            ?.error
+            ?.message ||
+          error.message;
+
+        console.error(
+          `[schedule] ${video.id}: ${reason || 'error'} - ${message}`
+        );
+
+        /*
+         * invalidPublishAt:
+         * try a later calculated slot.
+         */
+        if (
+          reason ===
+          'invalidPublishAt'
+        ) {
+          continue;
         }
-      }
-    });
 
-    scheduled++;
+        /*
+         * Other errors are likely tied to the video
+         * itself, authorization, or channel settings.
+         */
+        errors.push({
+          id:
+            video.id,
+
+          title:
+            video.snippet
+              ?.title ||
+            video.id,
+
+          reason:
+            reason ||
+            'unknown',
+
+          message
+        });
+
+        break;
+      }
+    }
+
+    if (!success) {
+      /*
+       * Continue to the next private video instead of
+       * crashing the entire scheduling batch.
+       */
+      continue;
+    }
   }
 
   return {
     scheduled,
-    hours
+
+    attempted:
+      privateVideos.length,
+
+    postingTimes:
+      recommendedTimesForApi(
+        videos
+      ),
+
+    /*
+     * Kept for compatibility with your current
+     * dashboard.
+     */
+    hours:
+      bestHours(
+        videos
+      ),
+
+    scheduledVideos:
+      results,
+
+    errors
   };
+}
+
+// =====================================================
+// GEMINI MODEL DISCOVERY
+// =====================================================
+
+let cachedGeminiModel =
+  null;
+
+let cachedGeminiModelAt =
+  0;
+
+async function discoverGeminiModel() {
+  if (
+    cfg.geminiModel
+  ) {
+    return cfg.geminiModel
+      .replace(
+        /^models\//,
+        ''
+      );
+  }
+
+  /*
+   * Keep the discovered model cached for six hours.
+   */
+  if (
+    cachedGeminiModel &&
+    Date.now() -
+      cachedGeminiModelAt <
+      6 *
+        60 *
+        60 *
+        1000
+  ) {
+    return cachedGeminiModel;
+  }
+
+  if (!cfg.geminiKey) {
+    throw new Error(
+      'GEMINI_API_KEY missing'
+    );
+  }
+
+  const url =
+    'https://generativelanguage.googleapis.com/v1beta/models' +
+    `?key=${encodeURIComponent(
+      cfg.geminiKey
+    )}`;
+
+  const response =
+    await fetch(url);
+
+  if (!response.ok) {
+    throw new Error(
+      `Gemini model lookup failed (${response.status}): ${await response.text()}`
+    );
+  }
+
+  const data =
+    await response.json();
+
+  const models =
+    (
+      data.models ||
+      []
+    )
+      .filter(
+        (model) =>
+          (
+            model
+              .supportedGenerationMethods ||
+            []
+          )
+            .includes(
+              'generateContent'
+            )
+      );
+
+  /*
+   * Prefer Flash models because comment moderation
+   * and short replies don't require the slowest/
+   * most expensive reasoning model.
+   */
+  const preferred =
+    models.find(
+      (model) =>
+        /flash/i.test(
+          model.name
+        ) &&
+        !/lite/i.test(
+          model.name
+        )
+    ) ||
+    models.find(
+      (model) =>
+        /flash/i.test(
+          model.name
+        )
+    ) ||
+    models[0];
+
+  if (!preferred) {
+    throw new Error(
+      'No Gemini generateContent model is available for this API key.'
+    );
+  }
+
+  cachedGeminiModel =
+    preferred.name
+      .replace(
+        /^models\//,
+        ''
+      );
+
+  cachedGeminiModelAt =
+    Date.now();
+
+  console.log(
+    `[gemini] Using model ${cachedGeminiModel}`
+  );
+
+  return cachedGeminiModel;
 }
 
 // =====================================================
@@ -771,39 +1871,68 @@ async function gemini(
     );
   }
 
+  const model =
+    await discoverGeminiModel();
+
   const url =
     `https://generativelanguage.googleapis.com/v1beta/models/` +
     `${encodeURIComponent(
-      cfg.geminiModel
+      model
     )}:generateContent?key=` +
     encodeURIComponent(
       cfg.geminiKey
     );
 
   const response =
-    await fetch(url, {
-      method: 'POST',
+    await fetch(
+      url,
+      {
+        method:
+          'POST',
 
-      headers: {
-        'content-type':
-          'application/json'
-      },
+        headers: {
+          'content-type':
+            'application/json'
+        },
 
-      body:
-        JSON.stringify({
-          contents: [
-            {
-              parts: [
-                {
-                  text: prompt
-                }
-              ]
+        body:
+          JSON.stringify({
+            contents: [
+              {
+                parts: [
+                  {
+                    text:
+                      prompt
+                  }
+                ]
+              }
+            ],
+
+            generationConfig: {
+              temperature:
+                0.4
             }
-          ]
-        })
-    });
+          })
+      }
+    );
 
   if (!response.ok) {
+    /*
+     * If Google removed the cached model, clear it so
+     * the next request discovers a currently available
+     * model.
+     */
+    if (
+      response.status ===
+      404
+    ) {
+      cachedGeminiModel =
+        null;
+
+      cachedGeminiModelAt =
+        0;
+    }
+
     throw new Error(
       `Gemini ${response.status}: ${await response.text()}`
     );
@@ -812,16 +1941,26 @@ async function gemini(
   const data =
     await response.json();
 
-  return (
-    data.candidates?.[0]
-      ?.content?.parts
+  const text =
+    data
+      .candidates?.[0]
+      ?.content
+      ?.parts
       ?.map(
         (part) =>
-          part.text || ''
+          part.text ||
+          ''
       )
       .join('')
-      .trim() || ''
-  );
+      .trim();
+
+  if (!text) {
+    throw new Error(
+      'Gemini returned an empty response.'
+    );
+  }
+
+  return text;
 }
 
 // =====================================================
@@ -835,6 +1974,7 @@ async function classifyAndReply() {
   if (!verified.ok) {
     return {
       handled: 0,
+
       reason:
         'Not verified'
     };
@@ -842,36 +1982,50 @@ async function classifyAndReply() {
 
   const response =
     await yt()
-      .commentThreads.list({
-        part: ['snippet'],
+      .commentThreads
+      .list({
+        part: [
+          'snippet'
+        ],
 
         allThreadsRelatedToChannelId:
           verified.channel.id,
 
-        maxResults: 50,
+        maxResults:
+          50,
 
-        order: 'time'
+        order:
+          'time'
       });
 
-  let handled = 0;
+  let handled =
+    0;
 
   for (
     const thread of
-      response.data.items || []
+      response.data.items ||
+      []
   ) {
     const comment =
-      thread.snippet
+      thread
+        .snippet
         .topLevelComment;
+
+    if (!comment) {
+      continue;
+    }
 
     const id =
       comment.id;
 
     const alreadyHandled =
-      db.prepare(`
-        SELECT 1
-        FROM handled_comments
-        WHERE comment_id=?
-      `).get(id);
+      db
+        .prepare(`
+          SELECT 1
+          FROM handled_comments
+          WHERE comment_id=?
+        `)
+        .get(id);
 
     if (
       alreadyHandled
@@ -882,19 +2036,25 @@ async function classifyAndReply() {
     const snippet =
       comment.snippet;
 
+    /*
+     * Ignore comments posted by your own channel.
+     */
     if (
-      snippet.authorChannelId
+      snippet
+        .authorChannelId
         ?.value ===
       verified.channel.id
     ) {
-      db.prepare(`
-        INSERT OR IGNORE INTO handled_comments
-        (comment_id, action)
-        VALUES (?,?)
-      `).run(
-        id,
-        'own'
-      );
+      db
+        .prepare(`
+          INSERT OR IGNORE INTO handled_comments
+          (comment_id, action)
+          VALUES (?,?)
+        `)
+        .run(
+          id,
+          'own'
+        );
 
       continue;
     }
@@ -909,12 +2069,23 @@ async function classifyAndReply() {
         await gemini(`
 Classify this YouTube comment.
 
-Return ONLY one word:
+Return ONLY one of these words:
+
 QUESTION
 SPAM
 NORMAL
 
-A question includes requests for information even without a question mark.
+QUESTION:
+The viewer is asking KindCrafted for information,
+help, an explanation, an opinion, or a response.
+
+SPAM:
+Obvious spam, scams, repetitive advertising,
+malicious promotion, or meaningless bot content.
+
+NORMAL:
+A normal friendly comment, compliment, reaction,
+statement, or non-question.
 
 Comment:
 ${JSON.stringify(
@@ -930,86 +2101,124 @@ ${JSON.stringify(
         'QUESTION'
       )
     ) {
-      db.prepare(`
-        INSERT OR IGNORE INTO questions
-        (
-          comment_id,
-          author,
-          text,
-          video_id,
-          created_at
-        )
-        VALUES (?,?,?,?,?)
-      `).run(
-        id,
-        snippet.authorDisplayName ||
-          'Unknown',
-        commentText,
-        thread.snippet.videoId,
-        snippet.publishedAt
-      );
+      db
+        .prepare(`
+          INSERT OR IGNORE INTO questions
+          (
+            comment_id,
+            author,
+            text,
+            video_id,
+            video_title,
+            created_at
+          )
+          VALUES (?,?,?,?,?,?)
+        `)
+        .run(
+          id,
 
-      db.prepare(`
-        INSERT OR IGNORE INTO handled_comments
-        (comment_id, action)
-        VALUES (?,?)
-      `).run(
-        id,
-        'question'
-      );
+          snippet
+            .authorDisplayName ||
+            'Unknown',
+
+          commentText,
+
+          thread
+            .snippet
+            .videoId,
+
+          '',
+
+          snippet
+            .publishedAt
+        );
+
+      db
+        .prepare(`
+          INSERT OR IGNORE INTO handled_comments
+          (comment_id, action)
+          VALUES (?,?)
+        `)
+        .run(
+          id,
+          'question'
+        );
+
     } else if (
       verdict.includes(
         'SPAM'
       )
     ) {
-      db.prepare(`
-        INSERT OR IGNORE INTO handled_comments
-        (comment_id, action)
-        VALUES (?,?)
-      `).run(
-        id,
-        'spam'
-      );
+      /*
+       * This marks the comment as spam internally.
+       * It does NOT delete the viewer's comment.
+       */
+      db
+        .prepare(`
+          INSERT OR IGNORE INTO handled_comments
+          (comment_id, action)
+          VALUES (?,?)
+        `)
+        .run(
+          id,
+          'spam'
+        );
+
     } else {
       const reply =
         await gemini(`
-Write one short, friendly, positive, family-friendly YouTube reply as the creator KindCrafted.
+Write one short, friendly, positive,
+family-friendly YouTube reply as KindCrafted.
 
-Do not pretend to know facts not in the comment.
-Do not ask a question.
+Rules:
+- Keep it natural.
+- Keep it short.
+- Do not invent information.
+- Do not ask the viewer a question.
+- Do not mention AI.
+- Do not claim something happened if the comment
+  does not establish it.
+- Avoid sounding repetitive or robotic.
 
-Comment:
+Viewer comment:
 ${JSON.stringify(
   commentText
 )}
         `);
 
       await yt()
-        .comments.insert({
-          part: ['snippet'],
+        .comments
+        .insert({
+          part: [
+            'snippet'
+          ],
 
           requestBody: {
             snippet: {
-              parentId: id,
+              parentId:
+                id,
+
               textOriginal:
                 reply
             }
           }
         });
 
-      db.prepare(`
-        INSERT OR IGNORE INTO handled_comments
-        (
-          comment_id,
-          action,
+      db
+        .prepare(`
+          INSERT OR IGNORE INTO handled_comments
+          (
+            comment_id,
+            action,
+            reply
+          )
+          VALUES (?,?,?)
+        `)
+        .run(
+          id,
+          'replied',
           reply
-        )
-        VALUES (?,?,?)
-      `).run(
-        id,
-        'replied',
-        reply
-      );
+        );
     }
 
     handled++;
@@ -1034,50 +2243,89 @@ app.get(
       const videos =
         await allOwnedVideos();
 
+      const postingTimes =
+        recommendedTimesForApi(
+          videos
+        );
+
       const privateQueue =
         videos
           .filter(
             (video) =>
               video.status
-                .privacyStatus ===
-              'private'
+                ?.privacyStatus ===
+                'private'
           )
           .sort(
             (a, b) =>
               new Date(
                 a.snippet
-                  .publishedAt
+                  ?.publishedAt ||
+                0
               ) -
               new Date(
                 b.snippet
-                  .publishedAt
+                  ?.publishedAt ||
+                0
               )
           )
           .map(
             (video) => ({
-              id: video.id,
+              id:
+                video.id,
 
               title:
                 video.snippet
-                  .title,
+                  ?.title ||
+                video.id,
 
               publishAt:
                 video.status
-                  .publishAt ||
+                  ?.publishAt ||
+                null,
+
+              uploadStatus:
+                video.status
+                  ?.uploadStatus ||
                 null
             })
           );
 
       const questions =
-        db.prepare(`
-          SELECT *
-          FROM questions
-          WHERE status='pending'
-          ORDER BY created_at DESC
-        `).all();
+        db
+          .prepare(`
+            SELECT *
+            FROM questions
+            WHERE status='pending'
+            ORDER BY created_at DESC
+          `)
+          .all();
+
+      const publicVideos =
+        videos
+          .filter(
+            (video) =>
+              video.status
+                ?.privacyStatus ===
+                'public'
+          )
+          .sort(
+            (a, b) =>
+              new Date(
+                b.snippet
+                  ?.publishedAt ||
+                0
+              ) -
+              new Date(
+                a.snippet
+                  ?.publishedAt ||
+                0
+              )
+          );
 
       res.json({
-        connected: true,
+        connected:
+          true,
 
         verified:
           verified.ok,
@@ -1087,28 +2335,81 @@ app.get(
 
         channel: {
           id:
-            verified.channel.id,
+            verified
+              .channel
+              .id,
 
           title:
-            verified.channel
-              .snippet.title,
+            verified
+              .channel
+              .snippet
+              .title,
 
           stats:
-            verified.channel
+            verified
+              .channel
               .statistics
         },
 
+        /*
+         * Existing dashboard support.
+         */
         bestHours:
-          bestHours(videos),
+          postingTimes.map(
+            (slot) =>
+              Number(
+                (
+                  slot.hour +
+                  slot.minute /
+                    60
+                ).toFixed(
+                  2
+                )
+              )
+          ),
+
+        /*
+         * New detailed data for future dashboard
+         * improvements.
+         */
+        recommendedTimes:
+          postingTimes,
+
+        recommendationSource: {
+          recentVideosUsed:
+            Math.min(
+              publicVideos.length,
+              cfg.recentVideoLimit
+            ),
+
+          maxRecentVideos:
+            cfg.recentVideoLimit,
+
+          postsPerDay:
+            cfg.postsPerDay,
+
+          timezone:
+            cfg.tz
+        },
 
         privateQueue,
 
         questions
       });
+
     } catch (error) {
+      console.error(
+        '[status]',
+        error
+      );
+
       res.json({
-        connected: false,
-        verified: false,
+        connected:
+          false,
+
+        verified:
+          false,
+
         error:
           error.message
       });
@@ -1124,9 +2425,13 @@ app.post(
   '/api/run/schedule',
   async (req, res) => {
     try {
+      const result =
+        await schedulePrivateVideos();
+
       res.json(
-        await schedulePrivateVideos()
+        result
       );
+
     } catch (error) {
       console.error(
         '[schedule]',
@@ -1151,9 +2456,13 @@ app.post(
   '/api/run/comments',
   async (req, res) => {
     try {
+      const result =
+        await classifyAndReply();
+
       res.json(
-        await classifyAndReply()
+        result
       );
+
     } catch (error) {
       console.error(
         '[comments]',
@@ -1179,13 +2488,15 @@ app.post(
   async (req, res) => {
     try {
       const question =
-        db.prepare(`
-          SELECT *
-          FROM questions
-          WHERE comment_id=?
-        `).get(
-          req.params.id
-        );
+        db
+          .prepare(`
+            SELECT *
+            FROM questions
+            WHERE comment_id=?
+          `)
+          .get(
+            req.params.id
+          );
 
       if (!question) {
         return res
@@ -1198,7 +2509,8 @@ app.post(
 
       const text =
         String(
-          req.body.text || ''
+          req.body.text ||
+          ''
         ).trim();
 
       if (!text) {
@@ -1211,8 +2523,11 @@ app.post(
       }
 
       await yt()
-        .comments.insert({
-          part: ['snippet'],
+        .comments
+        .insert({
+          part: [
+            'snippet'
+          ],
 
           requestBody: {
             snippet: {
@@ -1225,18 +2540,26 @@ app.post(
           }
         });
 
-      db.prepare(`
-        UPDATE questions
-        SET status='replied'
-        WHERE comment_id=?
-      `).run(
-        question.comment_id
-      );
+      db
+        .prepare(`
+          UPDATE questions
+          SET status='replied'
+          WHERE comment_id=?
+        `)
+        .run(
+          question.comment_id
+        );
 
       res.json({
         ok: true
       });
+
     } catch (error) {
+      console.error(
+        '[question reply]',
+        error
+      );
+
       res
         .status(500)
         .json({
@@ -1254,17 +2577,29 @@ app.post(
 app.post(
   '/api/questions/:id/ignore',
   (req, res) => {
-    db.prepare(`
-      UPDATE questions
-      SET status='ignored'
-      WHERE comment_id=?
-    `).run(
-      req.params.id
-    );
+    try {
+      db
+        .prepare(`
+          UPDATE questions
+          SET status='ignored'
+          WHERE comment_id=?
+        `)
+        .run(
+          req.params.id
+        );
 
-    res.json({
-      ok: true
-    });
+      res.json({
+        ok: true
+      });
+
+    } catch (error) {
+      res
+        .status(500)
+        .json({
+          error:
+            error.message
+        });
+    }
   }
 );
 
@@ -1276,16 +2611,23 @@ app.get(
   '/health',
   (req, res) => {
     res.json({
-      ok: true,
+      ok:
+        true,
+
       service:
-        'KindCrafted Creator Manager'
+        'KindCrafted Creator Manager',
+
+      timezone:
+        cfg.tz,
+
+      postsPerDay:
+        cfg.postsPerDay
     });
   }
 );
 
 // =====================================================
 // WEBSITE
-// IMPORTANT: THIS FIXES "Cannot GET /"
 // =====================================================
 
 const publicDir =
@@ -1342,18 +2684,22 @@ app.get(
 // AUTOMATIC CYCLE
 // =====================================================
 
-let busy = false;
+let busy =
+  false;
 
 async function cycle() {
   if (busy) {
     return;
   }
 
-  busy = true;
+  busy =
+    true;
 
   try {
     if (
-      getKV('tokens')
+      getKV(
+        'tokens'
+      )
     ) {
       console.log(
         '[cycle] Starting'
@@ -1365,8 +2711,11 @@ async function cycle() {
 
         console.log(
           '[cycle] Schedule:',
-          scheduleResult
+          JSON.stringify(
+            scheduleResult
+          )
         );
+
       } catch (error) {
         console.error(
           '[cycle:schedule]',
@@ -1380,8 +2729,11 @@ async function cycle() {
 
         console.log(
           '[cycle] Comments:',
-          commentResult
+          JSON.stringify(
+            commentResult
+          )
         );
+
       } catch (error) {
         console.error(
           '[cycle:comments]',
@@ -1389,16 +2741,22 @@ async function cycle() {
         );
       }
     }
+
   } finally {
-    busy = false;
+    busy =
+      false;
   }
 }
 
+// Run every 10 minutes.
 setInterval(
   cycle,
-  10 * 60 * 1000
+  10 *
+    60 *
+    1000
 );
 
+// First automatic run 15 seconds after startup.
 setTimeout(
   cycle,
   15000
@@ -1426,6 +2784,22 @@ app.listen(
 
     console.log(
       `[server] Dashboard: ${cfg.base}/`
+    );
+
+    console.log(
+      `[scheduler] Timezone: ${cfg.tz}`
+    );
+
+    console.log(
+      `[scheduler] Posts per day: ${cfg.postsPerDay}`
+    );
+
+    console.log(
+      `[scheduler] Recent videos analyzed: up to ${cfg.recentVideoLimit}`
+    );
+
+    console.log(
+      `[scheduler] Minimum future buffer: ${cfg.scheduleBufferMinutes} minutes`
     );
   }
 );
