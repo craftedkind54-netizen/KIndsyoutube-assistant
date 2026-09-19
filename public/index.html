@@ -2,9 +2,15 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 
-  <title>KindCrafted Creator Manager</title>
+  <meta
+    name="viewport"
+    content="width=device-width, initial-scale=1.0"
+  />
+
+  <title>
+    KindCrafted Creator Manager
+  </title>
 
   <style>
     * {
@@ -57,7 +63,11 @@
 
     .status-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+      grid-template-columns:
+        repeat(
+          auto-fit,
+          minmax(190px, 1fr)
+        );
       gap: 15px;
     }
 
@@ -112,6 +122,11 @@
       opacity: 0.88;
     }
 
+    .btn:disabled {
+      cursor: not-allowed;
+      opacity: 0.55;
+    }
+
     .btn.secondary {
       background: #263454;
     }
@@ -149,6 +164,7 @@
       justify-content: space-between;
       gap: 15px;
       margin-bottom: 15px;
+      flex-wrap: wrap;
     }
 
     .section-title h2 {
@@ -219,6 +235,34 @@
       font-weight: bold;
     }
 
+    .automation-box {
+      background: #0b1227;
+      border: 1px solid #202c4c;
+      border-radius: 14px;
+      padding: 18px;
+      margin-top: 15px;
+    }
+
+    .automation-status {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 19px;
+      font-weight: bold;
+      margin-bottom: 8px;
+    }
+
+    .dot {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      background: #ff6262;
+    }
+
+    .dot.running {
+      background: #55e58b;
+    }
+
     .loading {
       text-align: center;
       padding: 80px 20px;
@@ -255,7 +299,9 @@
       padding: 10px 0;
     }
 
-    @media (max-width: 600px) {
+    @media (
+      max-width: 600px
+    ) {
       .header h1 {
         font-size: 28px;
       }
@@ -274,45 +320,79 @@
 
 <body>
 
-  <div id="loading" class="loading">
+  <div
+    id="loading"
+    class="loading"
+  >
     Loading KindCrafted Creator Manager...
   </div>
 
-  <div id="connectScreen" class="connect-screen hidden">
-    <h1>🎬 KindCrafted Creator Manager</h1>
+  <div
+    id="connectScreen"
+    class="connect-screen hidden"
+  >
+    <h1>
+      🎬 KindCrafted Creator Manager
+    </h1>
 
     <p>
       Connect your KindCrafted YouTube channel to manage videos,
-      scheduling, comments, and creator tools.
+      automatic posting, comments, and creator tools.
     </p>
 
-    <div class="actions" style="justify-content:center;">
-      <button class="btn" onclick="connectYouTube()">
+    <div
+      class="actions"
+      style="justify-content:center;"
+    >
+      <button
+        class="btn"
+        onclick="connectYouTube()"
+      >
         Connect YouTube
       </button>
 
-      <button class="btn secondary" onclick="loadDashboard()">
+      <button
+        class="btn secondary"
+        onclick="loadDashboard()"
+      >
         Check Connection
       </button>
     </div>
 
-    <div id="connectMessage" class="message"></div>
+    <div
+      id="connectMessage"
+      class="message"
+    ></div>
   </div>
 
-  <main id="dashboard" class="page hidden">
+  <main
+    id="dashboard"
+    class="page hidden"
+  >
 
     <div class="header">
-      <h1>🎬 KindCrafted Creator Manager</h1>
+      <h1>
+        🎬 KindCrafted Creator Manager
+      </h1>
+
       <p>
-        Your YouTube management dashboard.
+        Automatic daily YouTube posting and comment management.
       </p>
     </div>
 
-    <section class="card">
-      <div class="section-title">
-        <h2>Channel Status</h2>
+    <!-- CHANNEL STATUS -->
 
-        <button class="btn secondary small" onclick="loadDashboard()">
+    <section class="card">
+
+      <div class="section-title">
+        <h2>
+          Channel Status
+        </h2>
+
+        <button
+          class="btn secondary small"
+          onclick="loadDashboard()"
+        >
           Refresh
         </button>
       </div>
@@ -320,95 +400,231 @@
       <div class="status-grid">
 
         <div class="stat">
-          <div class="stat-label">YouTube</div>
-          <div id="connectionStatus" class="stat-value">
+          <div class="stat-label">
+            YouTube
+          </div>
+
+          <div
+            id="connectionStatus"
+            class="stat-value"
+          >
             Checking...
           </div>
         </div>
 
         <div class="stat">
-          <div class="stat-label">Channel</div>
-          <div id="channelTitle" class="stat-value">
+          <div class="stat-label">
+            Channel
+          </div>
+
+          <div
+            id="channelTitle"
+            class="stat-value"
+          >
             —
           </div>
         </div>
 
         <div class="stat">
-          <div class="stat-label">Verification</div>
-          <div id="verificationStatus" class="stat-value">
+          <div class="stat-label">
+            Verification
+          </div>
+
+          <div
+            id="verificationStatus"
+            class="stat-value"
+          >
             —
           </div>
         </div>
 
         <div class="stat">
-          <div class="stat-label">Subscribers</div>
-          <div id="subscriberCount" class="stat-value">
+          <div class="stat-label">
+            Subscribers
+          </div>
+
+          <div
+            id="subscriberCount"
+            class="stat-value"
+          >
             —
           </div>
         </div>
 
         <div class="stat">
-          <div class="stat-label">Total Views</div>
-          <div id="viewCount" class="stat-value">
+          <div class="stat-label">
+            Total Views
+          </div>
+
+          <div
+            id="viewCount"
+            class="stat-value"
+          >
             —
           </div>
         </div>
 
         <div class="stat">
-          <div class="stat-label">Private Queue</div>
-          <div id="privateCount" class="stat-value">
+          <div class="stat-label">
+            Private Queue
+          </div>
+
+          <div
+            id="privateCount"
+            class="stat-value"
+          >
+            —
+          </div>
+        </div>
+
+        <div class="stat">
+          <div class="stat-label">
+            Automatic Posting
+          </div>
+
+          <div
+            id="autoStatusTop"
+            class="stat-value"
+          >
             —
           </div>
         </div>
 
       </div>
+
     </section>
+
+    <!-- AUTOMATIC POSTING -->
 
     <section class="card">
 
       <div class="section-title">
-        <h2>Recommended Upload Times</h2>
+        <h2>
+          Automatic Posting
+        </h2>
       </div>
 
       <p class="muted">
-        These hours are calculated from the performance of your existing videos.
-        Times are shown in Hawaii time.
+        When started, Creator Manager automatically recalculates
+        the best posting times every Hawaii day and schedules
+        only the next two private videos for that day.
       </p>
 
-      <div id="bestHours" class="hours">
-        <span class="muted">Loading...</span>
-      </div>
+      <div class="automation-box">
 
-    </section>
+        <div class="automation-status">
 
-    <section class="card">
+          <span
+            id="automationDot"
+            class="dot"
+          ></span>
 
-      <div class="section-title">
-        <h2>Private Video Queue</h2>
+          <span
+            id="automationStatus"
+          >
+            Checking...
+          </span>
 
-        <button
-          id="scheduleButton"
-          class="btn green"
-          onclick="scheduleVideos()"
+        </div>
+
+        <div
+          id="automationDetails"
+          class="muted"
         >
-          Schedule Private Videos
-        </button>
+          Loading automation status...
+        </div>
+
+        <div class="actions">
+
+          <button
+            id="startButton"
+            class="btn green"
+            onclick="startAutomation()"
+          >
+            ▶ Start Automatic Posting
+          </button>
+
+          <button
+            id="stopButton"
+            class="btn red"
+            onclick="stopAutomation()"
+          >
+            ■ Stop Automatic Posting
+          </button>
+
+        </div>
+
+        <div
+          id="automationMessage"
+          class="message"
+        ></div>
+
       </div>
 
-      <p class="muted">
-        Your private uploaded videos waiting to be scheduled.
-      </p>
-
-      <div id="scheduleMessage" class="message"></div>
-
-      <div id="videoList" class="video-list"></div>
-
     </section>
+
+    <!-- RECOMMENDED TIMES -->
 
     <section class="card">
 
       <div class="section-title">
-        <h2>AI Comment Manager</h2>
+        <h2>
+          Today's Recommended Upload Times
+        </h2>
+      </div>
+
+      <p class="muted">
+        These times are recalculated from the performance of
+        your recent public videos. Times are shown in Hawaii time.
+      </p>
+
+      <div
+        id="bestHours"
+        class="hours"
+      >
+        <span class="muted">
+          Loading...
+        </span>
+      </div>
+
+      <p
+        id="recommendationInfo"
+        class="muted"
+      ></p>
+
+    </section>
+
+    <!-- PRIVATE QUEUE -->
+
+    <section class="card">
+
+      <div class="section-title">
+        <h2>
+          Private Video Queue
+        </h2>
+      </div>
+
+      <p class="muted">
+        Videos remain private and unscheduled until the automatic
+        system selects them for the current day.
+      </p>
+
+      <div
+        id="videoList"
+        class="video-list"
+      ></div>
+
+    </section>
+
+    <!-- COMMENTS -->
+
+    <section class="card">
+
+      <div class="section-title">
+
+        <h2>
+          AI Comment Manager
+        </h2>
 
         <button
           id="commentsButton"
@@ -417,21 +633,29 @@
         >
           Scan Comments
         </button>
+
       </div>
 
       <p class="muted">
-        Scans recent comments, identifies questions, filters spam,
-        and replies to normal comments.
+        Scans recent comments, identifies questions,
+        filters spam, and replies to normal comments.
       </p>
 
-      <div id="commentMessage" class="message"></div>
+      <div
+        id="commentMessage"
+        class="message"
+      ></div>
 
     </section>
+
+    <!-- QUESTIONS -->
 
     <section class="card">
 
       <div class="section-title">
-        <h2>Questions Needing Your Reply</h2>
+        <h2>
+          Questions Needing Your Reply
+        </h2>
       </div>
 
       <p class="muted">
@@ -439,7 +663,10 @@
         You choose the response.
       </p>
 
-      <div id="questionList" class="question-list"></div>
+      <div
+        id="questionList"
+        class="question-list"
+      ></div>
 
     </section>
 
@@ -448,330 +675,834 @@
   <script>
 
     function connectYouTube() {
-      window.location.href = "/auth/google";
+      window.location.href =
+        "/auth/google";
     }
 
     function number(value) {
-      if (value === undefined || value === null) return "—";
+      if (
+        value === undefined ||
+        value === null
+      ) {
+        return "—";
+      }
 
-      const n = Number(value);
+      const n =
+        Number(value);
 
-      if (Number.isNaN(n)) return value;
+      if (
+        Number.isNaN(n)
+      ) {
+        return value;
+      }
 
-      return new Intl.NumberFormat().format(n);
-    }
-
-    function hourLabel(hour) {
-      const h = Number(hour);
-
-      const suffix = h >= 12 ? "PM" : "AM";
-
-      let display = h % 12;
-
-      if (display === 0) display = 12;
-
-      return `${display}:00 ${suffix} HST`;
+      return new Intl
+        .NumberFormat()
+        .format(n);
     }
 
     function safe(value) {
-      const div = document.createElement("div");
-      div.textContent = value ?? "";
+      const div =
+        document.createElement(
+          "div"
+        );
+
+      div.textContent =
+        value ?? "";
+
       return div.innerHTML;
     }
 
-    function showMessage(id, text, error = false) {
-      const box = document.getElementById(id);
+    function showMessage(
+      id,
+      text,
+      error = false
+    ) {
+      const box =
+        document.getElementById(
+          id
+        );
 
-      box.textContent = text;
-      box.classList.add("show");
+      box.textContent =
+        text;
 
-      box.style.color = error ? "#ff7777" : "#7ee5a4";
+      box.classList.add(
+        "show"
+      );
+
+      box.style.color =
+        error
+          ? "#ff7777"
+          : "#7ee5a4";
     }
+
+    function clearMessage(
+      id
+    ) {
+      const box =
+        document.getElementById(
+          id
+        );
+
+      box.textContent =
+        "";
+
+      box.classList.remove(
+        "show"
+      );
+    }
+
+    // =================================================
+    // LOAD DASHBOARD
+    // =================================================
 
     async function loadDashboard() {
 
-      const loading = document.getElementById("loading");
-      const connect = document.getElementById("connectScreen");
-      const dashboard = document.getElementById("dashboard");
+      const loading =
+        document.getElementById(
+          "loading"
+        );
+
+      const connect =
+        document.getElementById(
+          "connectScreen"
+        );
+
+      const dashboard =
+        document.getElementById(
+          "dashboard"
+        );
 
       try {
 
-        const response = await fetch("/api/status", {
-          cache: "no-store"
-        });
+        const response =
+          await fetch(
+            "/api/status",
+            {
+              cache:
+                "no-store"
+            }
+          );
 
-        const data = await response.json();
+        const data =
+          await response.json();
 
-        loading.classList.add("hidden");
+        loading.classList.add(
+          "hidden"
+        );
 
-        if (!data.connected) {
+        if (
+          !data.connected
+        ) {
+          dashboard
+            .classList
+            .add(
+              "hidden"
+            );
 
-          dashboard.classList.add("hidden");
-          connect.classList.remove("hidden");
+          connect
+            .classList
+            .remove(
+              "hidden"
+            );
 
           showMessage(
             "connectMessage",
-            data.error || "YouTube is not connected.",
+
+            data.error ||
+            "YouTube is not connected.",
+
             true
           );
 
           return;
         }
 
-        connect.classList.add("hidden");
-        dashboard.classList.remove("hidden");
+        connect
+          .classList
+          .add(
+            "hidden"
+          );
 
-        document.getElementById("connectionStatus").textContent =
+        dashboard
+          .classList
+          .remove(
+            "hidden"
+          );
+
+        // ---------------------------------------------
+        // CHANNEL
+        // ---------------------------------------------
+
+        const connectionStatus =
+          document.getElementById(
+            "connectionStatus"
+          );
+
+        connectionStatus.textContent =
           "Connected ✓";
 
-        document.getElementById("connectionStatus").className =
+        connectionStatus.className =
           "stat-value good";
 
-        document.getElementById("channelTitle").textContent =
-          data.channel?.title || "Unknown";
+        document
+          .getElementById(
+            "channelTitle"
+          )
+          .textContent =
+          data.channel?.title ||
+          "Unknown";
 
-        document.getElementById("verificationStatus").textContent =
-          data.verified ? "Verified ✓" : "Not Verified";
+        const verificationStatus =
+          document.getElementById(
+            "verificationStatus"
+          );
 
-        document.getElementById("verificationStatus").className =
+        verificationStatus.textContent =
+          data.verified
+            ? "Verified ✓"
+            : "Not Verified";
+
+        verificationStatus.className =
           data.verified
             ? "stat-value good"
             : "stat-value bad";
 
-        const stats = data.channel?.stats || {};
+        const stats =
+          data.channel?.stats ||
+          {};
 
-        document.getElementById("subscriberCount").textContent =
-          number(stats.subscriberCount);
+        document
+          .getElementById(
+            "subscriberCount"
+          )
+          .textContent =
+          number(
+            stats.subscriberCount
+          );
 
-        document.getElementById("viewCount").textContent =
-          number(stats.viewCount);
+        document
+          .getElementById(
+            "viewCount"
+          )
+          .textContent =
+          number(
+            stats.viewCount
+          );
 
-        const queue = data.privateQueue || [];
+        // ---------------------------------------------
+        // QUEUE
+        // ---------------------------------------------
 
-        document.getElementById("privateCount").textContent =
+        const queue =
+          data.privateQueue ||
+          [];
+
+        document
+          .getElementById(
+            "privateCount"
+          )
+          .textContent =
           queue.length;
 
-        renderHours(data.bestHours || []);
+        // ---------------------------------------------
+        // AUTOMATION
+        // ---------------------------------------------
 
-        renderVideos(queue);
+        renderAutomation(
+          data.automation ||
+          {}
+        );
 
-        renderQuestions(data.questions || []);
+        // ---------------------------------------------
+        // RECOMMENDATIONS
+        // ---------------------------------------------
 
-      } catch (error) {
+        renderRecommendedTimes(
+          data.recommendedTimes ||
+          []
+        );
 
-        loading.classList.add("hidden");
+        const source =
+          data.recommendationSource ||
+          {};
 
-        connect.classList.remove("hidden");
+        document
+          .getElementById(
+            "recommendationInfo"
+          )
+          .textContent =
+          source.recentVideosUsed !==
+          undefined
+            ? `Using up to ${source.recentVideosUsed} recent public video(s) for today's calculation.`
+            : "";
+
+        // ---------------------------------------------
+        // VIDEOS
+        // ---------------------------------------------
+
+        renderVideos(
+          queue
+        );
+
+        // ---------------------------------------------
+        // QUESTIONS
+        // ---------------------------------------------
+
+        renderQuestions(
+          data.questions ||
+          []
+        );
+
+      } catch (
+        error
+      ) {
+        loading
+          .classList
+          .add(
+            "hidden"
+          );
+
+        connect
+          .classList
+          .remove(
+            "hidden"
+          );
 
         showMessage(
           "connectMessage",
-          "Could not load Creator Manager: " + error.message,
+
+          "Could not load Creator Manager: " +
+          error.message,
+
           true
         );
       }
     }
 
-    function renderHours(hours) {
+    // =================================================
+    // AUTOMATION DISPLAY
+    // =================================================
 
-      const container = document.getElementById("bestHours");
+    function renderAutomation(
+      automation
+    ) {
+      const enabled =
+        Boolean(
+          automation.enabled
+        );
 
-      if (!hours.length) {
+      const dot =
+        document.getElementById(
+          "automationDot"
+        );
+
+      const status =
+        document.getElementById(
+          "automationStatus"
+        );
+
+      const top =
+        document.getElementById(
+          "autoStatusTop"
+        );
+
+      const details =
+        document.getElementById(
+          "automationDetails"
+        );
+
+      const start =
+        document.getElementById(
+          "startButton"
+        );
+
+      const stop =
+        document.getElementById(
+          "stopButton"
+        );
+
+      if (
+        enabled
+      ) {
+        dot.classList.add(
+          "running"
+        );
+
+        status.textContent =
+          "Automatic Posting is RUNNING";
+
+        status.className =
+          "good";
+
+        top.textContent =
+          "Running ✓";
+
+        top.className =
+          "stat-value good";
+
+        start.disabled =
+          true;
+
+        stop.disabled =
+          false;
+
+      } else {
+        dot.classList.remove(
+          "running"
+        );
+
+        status.textContent =
+          "Automatic Posting is STOPPED";
+
+        status.className =
+          "bad";
+
+        top.textContent =
+          "Stopped";
+
+        top.className =
+          "stat-value bad";
+
+        start.disabled =
+          false;
+
+        stop.disabled =
+          true;
+      }
+
+      const today =
+        automation.today ||
+        {};
+
+      const scheduled =
+        today.scheduled ||
+        [];
+
+      if (
+        today.completed
+      ) {
+        if (
+          scheduled.length
+        ) {
+          details.textContent =
+            `Today's automatic scheduling is complete. ` +
+            `${scheduled.length} video(s) were selected today. ` +
+            `The next calculation happens on the next Hawaii calendar day.`;
+
+        } else {
+          details.textContent =
+            "Today's automatic calculation is complete. " +
+            "No additional video will be scheduled until the next Hawaii calendar day.";
+        }
+
+      } else if (
+        enabled
+      ) {
+        details.textContent =
+          "Automation is active. Creator Manager will automatically calculate today's best times and select up to two videos.";
+
+      } else {
+        details.textContent =
+          "Press Start once. After that, no daily approval is required.";
+      }
+    }
+
+    // =================================================
+    // START
+    // =================================================
+
+    async function startAutomation() {
+
+      const button =
+        document.getElementById(
+          "startButton"
+        );
+
+      button.disabled =
+        true;
+
+      button.textContent =
+        "Starting...";
+
+      showMessage(
+        "automationMessage",
+        "Starting automatic posting and calculating today's schedule..."
+      );
+
+      try {
+
+        const response =
+          await fetch(
+            "/api/automation/start",
+            {
+              method:
+                "POST",
+
+              headers: {
+                "Content-Type":
+                  "application/json"
+              }
+            }
+          );
+
+        const data =
+          await response.json();
+
+        if (
+          !response.ok
+        ) {
+          throw new Error(
+            data.error ||
+            "Could not start automatic posting."
+          );
+        }
+
+        const result =
+          data.result ||
+          {};
+
+        let message =
+          "Automatic posting is ON.";
+
+        if (
+          result.scheduled >
+          0
+        ) {
+          message +=
+            `\n${result.scheduled} video(s) scheduled for today.`;
+        }
+
+        if (
+          result.reason
+        ) {
+          message +=
+            `\n${result.reason}`;
+        }
+
+        showMessage(
+          "automationMessage",
+          message
+        );
+
+        await loadDashboard();
+
+      } catch (
+        error
+      ) {
+        showMessage(
+          "automationMessage",
+          error.message,
+          true
+        );
+
+      } finally {
+        button.textContent =
+          "▶ Start Automatic Posting";
+      }
+    }
+
+    // =================================================
+    // STOP
+    // =================================================
+
+    async function stopAutomation() {
+
+      const button =
+        document.getElementById(
+          "stopButton"
+        );
+
+      button.disabled =
+        true;
+
+      button.textContent =
+        "Stopping...";
+
+      showMessage(
+        "automationMessage",
+        "Stopping automatic posting..."
+      );
+
+      try {
+
+        const response =
+          await fetch(
+            "/api/automation/stop",
+            {
+              method:
+                "POST",
+
+              headers: {
+                "Content-Type":
+                  "application/json"
+              }
+            }
+          );
+
+        const data =
+          await response.json();
+
+        if (
+          !response.ok
+        ) {
+          throw new Error(
+            data.error ||
+            "Could not stop automatic posting."
+          );
+        }
+
+        let message =
+          "Automatic posting is OFF.";
+
+        if (
+          data.cancelled >
+          0
+        ) {
+          message +=
+            `\n${data.cancelled} pending scheduled video(s) returned to private.`;
+        }
+
+        showMessage(
+          "automationMessage",
+          message
+        );
+
+        await loadDashboard();
+
+      } catch (
+        error
+      ) {
+        showMessage(
+          "automationMessage",
+          error.message,
+          true
+        );
+
+      } finally {
+        button.textContent =
+          "■ Stop Automatic Posting";
+      }
+    }
+
+    // =================================================
+    // RECOMMENDED TIMES
+    // =================================================
+
+    function renderRecommendedTimes(
+      times
+    ) {
+      const container =
+        document.getElementById(
+          "bestHours"
+        );
+
+      if (
+        !times.length
+      ) {
         container.innerHTML =
           '<span class="muted">No recommended times yet.</span>';
+
         return;
       }
 
-      container.innerHTML = hours
-        .map(hour =>
-          `<span class="hour">${hourLabel(hour)}</span>`
-        )
-        .join("");
+      container.innerHTML =
+        times
+          .map(
+            (time) => {
+              const label =
+                time.display ||
+                "Unknown";
+
+              return (
+                `<span class="hour">` +
+                `${safe(label)} HST` +
+                `</span>`
+              );
+            }
+          )
+          .join("");
     }
 
-    function renderVideos(videos) {
+    // =================================================
+    // VIDEOS
+    // =================================================
 
-      const container = document.getElementById("videoList");
+    function renderVideos(
+      videos
+    ) {
+      const container =
+        document.getElementById(
+          "videoList"
+        );
 
-      if (!videos.length) {
-
+      if (
+        !videos.length
+      ) {
         container.innerHTML =
           '<div class="empty">No private videos waiting. 🎉</div>';
 
         return;
       }
 
-      container.innerHTML = videos.map((video, index) => {
+      container.innerHTML =
+        videos
+          .map(
+            (
+              video,
+              index
+            ) => {
+              let scheduled =
+                "Waiting for automatic selection";
 
-        let scheduled = "Not scheduled";
+              if (
+                video.publishAt
+              ) {
+                const date =
+                  new Date(
+                    video.publishAt
+                  );
 
-        if (video.publishAt) {
+                scheduled =
+                  date.toLocaleString(
+                    "en-US",
+                    {
+                      timeZone:
+                        "Pacific/Honolulu",
 
-          const date = new Date(video.publishAt);
+                      dateStyle:
+                        "medium",
 
-          scheduled = date.toLocaleString(
-            "en-US",
-            {
-              timeZone: "Pacific/Honolulu",
-              dateStyle: "medium",
-              timeStyle: "short"
+                      timeStyle:
+                        "short"
+                    }
+                  ) +
+                  " HST";
+              }
+
+              return `
+                <div class="video">
+
+                  <div class="video-title">
+                    ${index + 1}. ${safe(
+                      video.title
+                    )}
+                  </div>
+
+                  <div class="video-meta">
+                    Video ID: ${safe(
+                      video.id
+                    )}
+                    <br>
+                    Publish time: ${safe(
+                      scheduled
+                    )}
+                  </div>
+
+                </div>
+              `;
             }
-          ) + " HST";
-        }
-
-        return `
-          <div class="video">
-
-            <div class="video-title">
-              ${index + 1}. ${safe(video.title)}
-            </div>
-
-            <div class="video-meta">
-              Video ID: ${safe(video.id)}
-              <br>
-              Publish time: ${safe(scheduled)}
-            </div>
-
-          </div>
-        `;
-
-      }).join("");
+          )
+          .join("");
     }
 
-    function renderQuestions(questions) {
+    // =================================================
+    // QUESTIONS
+    // =================================================
 
-      const container = document.getElementById("questionList");
+    function renderQuestions(
+      questions
+    ) {
+      const container =
+        document.getElementById(
+          "questionList"
+        );
 
-      if (!questions.length) {
-
+      if (
+        !questions.length
+      ) {
         container.innerHTML =
           '<div class="empty">No questions waiting for you. ✅</div>';
 
         return;
       }
 
-      container.innerHTML = questions.map(question => {
+      container.innerHTML =
+        questions
+          .map(
+            (
+              question
+            ) => {
+              const id =
+                safe(
+                  question.comment_id
+                );
 
-        const id = safe(question.comment_id);
+              return `
+                <div
+                  class="question"
+                  id="question-${id}"
+                >
 
-        return `
-          <div class="question" id="question-${id}">
+                  <div class="question-author">
+                    ${safe(
+                      question.author ||
+                      "YouTube Viewer"
+                    )}
+                  </div>
 
-            <div class="question-author">
-              ${safe(question.author || "YouTube Viewer")}
-            </div>
+                  <div class="question-text">
+                    ${safe(
+                      question.text
+                    )}
+                  </div>
 
-            <div class="question-text">
-              ${safe(question.text)}
-            </div>
+                  <textarea
+                    id="reply-${id}"
+                    placeholder="Type your reply here..."
+                  ></textarea>
 
-            <textarea
-              id="reply-${id}"
-              placeholder="Type your reply here..."
-            ></textarea>
+                  <div class="actions">
 
-            <div class="actions">
+                    <button
+                      class="btn green small"
+                      onclick="replyQuestion('${id}')"
+                    >
+                      Send Reply
+                    </button>
 
-              <button
-                class="btn green small"
-                onclick="replyQuestion('${id}')"
-              >
-                Send Reply
-              </button>
+                    <button
+                      class="btn red small"
+                      onclick="ignoreQuestion('${id}')"
+                    >
+                      Ignore
+                    </button>
 
-              <button
-                class="btn red small"
-                onclick="ignoreQuestion('${id}')"
-              >
-                Ignore
-              </button>
+                  </div>
 
-            </div>
-
-          </div>
-        `;
-
-      }).join("");
-    }
-
-    async function scheduleVideos() {
-
-      const button =
-        document.getElementById("scheduleButton");
-
-      button.disabled = true;
-      button.textContent = "Scheduling...";
-
-      showMessage(
-        "scheduleMessage",
-        "Analyzing your channel and scheduling videos..."
-      );
-
-      try {
-
-        const response = await fetch(
-          "/api/run/schedule",
-          {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json"
+                </div>
+              `;
             }
-          }
-        );
-
-        const data = await response.json();
-
-        if (!response.ok) {
-          throw new Error(
-            data.error || "Scheduling failed"
-          );
-        }
-
-        if (data.reason) {
-
-          showMessage(
-            "scheduleMessage",
-            data.reason,
-            true
-          );
-
-        } else {
-
-          const hours =
-            (data.hours || [])
-            .map(hourLabel)
-            .join(", ");
-
-          showMessage(
-            "scheduleMessage",
-            `Scheduled ${data.scheduled || 0} video(s).\nRecommended times: ${hours || "None"}`
-          );
-        }
-
-        await loadDashboard();
-
-      } catch (error) {
-
-        showMessage(
-          "scheduleMessage",
-          error.message,
-          true
-        );
-
-      } finally {
-
-        button.disabled = false;
-        button.textContent =
-          "Schedule Private Videos";
-      }
+          )
+          .join("");
     }
+
+    // =================================================
+    // COMMENT SCAN
+    // =================================================
 
     async function runComments() {
 
       const button =
-        document.getElementById("commentsButton");
+        document.getElementById(
+          "commentsButton"
+        );
 
-      button.disabled = true;
-      button.textContent = "Scanning...";
+      button.disabled =
+        true;
+
+      button.textContent =
+        "Scanning...";
 
       showMessage(
         "commentMessage",
@@ -780,26 +1511,35 @@
 
       try {
 
-        const response = await fetch(
-          "/api/run/comments",
-          {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json"
+        const response =
+          await fetch(
+            "/api/run/comments",
+            {
+              method:
+                "POST",
+
+              headers: {
+                "Content-Type":
+                  "application/json"
+              }
             }
-          }
-        );
+          );
 
-        const data = await response.json();
+        const data =
+          await response.json();
 
-        if (!response.ok) {
+        if (
+          !response.ok
+        ) {
           throw new Error(
-            data.error || "Comment scan failed"
+            data.error ||
+            "Comment scan failed"
           );
         }
 
-        if (data.reason) {
-
+        if (
+          data.reason
+        ) {
           showMessage(
             "commentMessage",
             data.reason,
@@ -807,17 +1547,21 @@
           );
 
         } else {
-
           showMessage(
             "commentMessage",
-            `Finished. ${data.handled || 0} new comment(s) processed.`
+
+            `Finished. ${
+              data.handled ||
+              0
+            } new comment(s) processed.`
           );
         }
 
         await loadDashboard();
 
-      } catch (error) {
-
+      } catch (
+        error
+      ) {
         showMessage(
           "commentMessage",
           error.message,
@@ -825,56 +1569,77 @@
         );
 
       } finally {
+        button.disabled =
+          false;
 
-        button.disabled = false;
-        button.textContent = "Scan Comments";
+        button.textContent =
+          "Scan Comments";
       }
     }
 
-    async function replyQuestion(id) {
+    // =================================================
+    // REPLY
+    // =================================================
 
+    async function replyQuestion(
+      id
+    ) {
       const input =
-        document.getElementById(`reply-${id}`);
+        document.getElementById(
+          `reply-${id}`
+        );
 
-      const text = input.value.trim();
+      const text =
+        input.value.trim();
 
       if (!text) {
-        alert("Type a reply first.");
+        alert(
+          "Type a reply first."
+        );
+
         return;
       }
 
       try {
 
-        const response = await fetch(
-          `/api/questions/${encodeURIComponent(id)}/reply`,
-          {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json"
-            },
-            body: JSON.stringify({
-              text
-            })
-          }
-        );
+        const response =
+          await fetch(
+            `/api/questions/${encodeURIComponent(
+              id
+            )}/reply`,
+            {
+              method:
+                "POST",
 
-        const data = await response.json();
+              headers: {
+                "Content-Type":
+                  "application/json"
+              },
 
-        if (!response.ok) {
+              body:
+                JSON.stringify({
+                  text
+                })
+            }
+          );
+
+        const data =
+          await response.json();
+
+        if (
+          !response.ok
+        ) {
           throw new Error(
-            data.error || "Reply failed"
+            data.error ||
+            "Reply failed"
           );
         }
 
-        const card =
-          document.getElementById(`question-${id}`);
-
-        if (card) card.remove();
-
         await loadDashboard();
 
-      } catch (error) {
-
+      } catch (
+        error
+      ) {
         alert(
           "Could not send reply: " +
           error.message
@@ -882,43 +1647,61 @@
       }
     }
 
-    async function ignoreQuestion(id) {
+    // =================================================
+    // IGNORE
+    // =================================================
 
+    async function ignoreQuestion(
+      id
+    ) {
       try {
 
-        const response = await fetch(
-          `/api/questions/${encodeURIComponent(id)}/ignore`,
-          {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json"
+        const response =
+          await fetch(
+            `/api/questions/${encodeURIComponent(
+              id
+            )}/ignore`,
+            {
+              method:
+                "POST",
+
+              headers: {
+                "Content-Type":
+                  "application/json"
+              }
             }
-          }
-        );
+          );
 
-        const data = await response.json();
+        const data =
+          await response.json();
 
-        if (!response.ok) {
+        if (
+          !response.ok
+        ) {
           throw new Error(
-            data.error || "Could not ignore question"
+            data.error ||
+            "Could not ignore question"
           );
         }
 
-        const card =
-          document.getElementById(`question-${id}`);
-
-        if (card) card.remove();
-
         await loadDashboard();
 
-      } catch (error) {
-
-        alert(error.message);
+      } catch (
+        error
+      ) {
+        alert(
+          error.message
+        );
       }
     }
 
+    // =================================================
+    // START DASHBOARD
+    // =================================================
+
     loadDashboard();
 
+    // Refresh dashboard every minute.
     setInterval(
       loadDashboard,
       60000
