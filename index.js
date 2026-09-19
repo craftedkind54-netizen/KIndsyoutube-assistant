@@ -3,16 +3,16 @@ import fs from 'fs';
 import express from 'express';
 import { google } from 'googleapis';
 import Database from 'better-sqlite3';
-import crypto from 'crypto';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const app = express();
 
 app.use(express.json());
-app.use(express.static(path.join(__dirname, 'public')));
+app.use(express.urlencoded({ extended: true }));
 
 // =====================================================
 // CONFIG
@@ -20,18 +20,31 @@ app.use(express.static(path.join(__dirname, 'public')));
 
 const cfg = {
   port: Number(process.env.PORT || 3000),
-  base: process.env.BASE_URL || 'http://localhost:3000',
 
-  handle:
-    process.env.YOUTUBE_CHANNEL_HANDLE ||
-    '@KindCrafted-m4q',
+  base:
+    process.env.BASE_URL ||
+    process.env.RAILWAY_PUBLIC_DOMAIN
+      ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}`
+      : 'http://localhost:3000',
+
+  handle: process.env.YOUTUBE_CHANNEL_HANDLE || '@KindCrafted-m4q',
 
   phrase:
     process.env.VERIFY_PHRASE ||
     'CRAFTED-MANAGER-VERIFY-2026',
 
   clientId: process.env.GOOGLE_CLIENT_ID,
+
   clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+
+  redirectUri:
+    process.env.GOOGLE_REDIRECT_URI ||
+    `${
+      process.env.BASE_URL ||
+      (process.env.RAILWAY_PUBLIC_DOMAIN
+        ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}`
+        : 'http://localhost:3000')
+    }/oauth2callback`,
 
   geminiKey: process.env.GEMINI_API_KEY,
 
@@ -56,10 +69,6 @@ const cfg = {
 // =====================================================
 // DATABASE
 // =====================================================
-
-// Make sure the data folder exists before SQLite opens.
-// This fixes Railway:
-// "Cannot open database because the directory does not exist"
 
 const dataDir = path.join(__dirname, 'data');
 
@@ -135,12 +144,13 @@ const setKV = (k, v) =>
 // GOOGLE OAUTH
 // =====================================================
 
-const oauth = () =>
-  new google.auth.OAuth2(
+function oauth() {
+  return new google.auth.OAuth2(
     cfg.clientId,
     cfg.clientSecret,
-    `${cfg.base}/oauth2callback`
+    cfg.redirectUri
   );
+}
 
 function authed() {
   const o = oauth();
@@ -153,12 +163,13 @@ function authed() {
     );
   }
 
-  o.setCredentials(
-    JSON.parse(raw)
-  );
+  const credentials =
+    JSON.parse(raw);
 
-  o.on('tokens', (t) => {
-    const oldTokens =
+  o.setCredentials(credentials);
+
+  o.on('tokens', (tokens) => {
+    const existing =
       JSON.parse(
         getKV('tokens') || '{}'
       );
@@ -166,8 +177,8 @@ function authed() {
     setKV(
       'tokens',
       JSON.stringify({
-        ...oldTokens,
-        ...t
+        ...existing,
+        ...tokens
       })
     );
   });
@@ -189,7 +200,6 @@ function yt() {
 app.get(
   '/auth/google',
   (req, res) => {
-
     if (
       !cfg.clientId ||
       !cfg.clientSecret
@@ -203,9 +213,10 @@ app.get(
 
     const o = oauth();
 
-    const url =
+    const authUrl =
       o.generateAuthUrl({
         access_type: 'offline',
+
         prompt: 'consent',
 
         scope: [
@@ -214,33 +225,23 @@ app.get(
         ]
       });
 
-    res.redirect(url);
+    res.redirect(authUrl);
   }
 );
-
-// =====================================================
-// OAUTH CALLBACK
-// =====================================================
 
 app.get(
   '/oauth2callback',
   async (req, res) => {
-
     try {
-
       if (!req.query.code) {
-        return res
-          .status(400)
-          .send(
-            'Google did not return an authorization code.'
-          );
+        throw new Error(
+          'Google did not return an authorization code.'
+        );
       }
 
       const o = oauth();
 
-      const {
-        tokens
-      } =
+      const { tokens } =
         await o.getToken(
           req.query.code
         );
@@ -251,36 +252,35 @@ app.get(
       );
 
       console.log(
-        '[oauth] YouTube account connected'
+        '[oauth] YouTube connected'
       );
 
       res.redirect(
         '/?connected=1'
       );
-
-    } catch (e) {
-
+    } catch (error) {
       console.error(
-        '[oauth callback]',
-        e
+        '[oauth]',
+        error
       );
 
       res
         .status(500)
-        .send(e.message);
+        .send(
+          `YouTube connection failed: ${error.message}`
+        );
     }
   }
 );
 
 // =====================================================
-// CHANNEL INFO
+// YOUTUBE CHANNEL
 // =====================================================
 
 async function channelInfo() {
-
   const y = yt();
 
-  const r =
+  const response =
     await y.channels.list({
       part: [
         'snippet',
@@ -291,129 +291,108 @@ async function channelInfo() {
       mine: true
     });
 
-  const c =
-    r.data.items?.[0];
+  const channel =
+    response.data.items?.[0];
 
-  if (!c) {
+  if (!channel) {
     throw new Error(
       'No authorized YouTube channel found'
     );
   }
 
-  return c;
+  return channel;
 }
 
-// =====================================================
-// VERIFY CHANNEL
-// =====================================================
-
 async function verifyDescription() {
-
-  const c =
+  const channel =
     await channelInfo();
 
-  return {
-    ok:
-      (
-        c.snippet
-          ?.description ||
-        ''
-      ).includes(
-        cfg.phrase
-      ),
+  const description =
+    channel.snippet?.description ||
+    '';
 
-    channel: c
+  return {
+    ok: description.includes(
+      cfg.phrase
+    ),
+
+    channel
   };
 }
 
 // =====================================================
-// GET ALL OWNED VIDEOS
+// LOAD ALL CHANNEL VIDEOS
 // =====================================================
 
 async function allOwnedVideos() {
-
-  const c =
+  const channel =
     await channelInfo();
 
   const uploads =
-    c.contentDetails
-      .relatedPlaylists
-      .uploads;
+    channel.contentDetails
+      .relatedPlaylists.uploads;
 
-  let token;
+  let pageToken;
 
   const ids = [];
 
   do {
+    const response =
+      await yt().playlistItems.list({
+        part: [
+          'contentDetails'
+        ],
 
-    const r =
-      await yt()
-        .playlistItems
-        .list({
-          part: [
-            'contentDetails'
-          ],
+        playlistId: uploads,
 
-          playlistId:
-            uploads,
+        maxResults: 50,
 
-          maxResults: 50,
-
-          pageToken:
-            token
-        });
+        pageToken
+      });
 
     ids.push(
-      ...(
-        r.data.items ||
-        []
-      ).map(
-        (x) =>
-          x.contentDetails
-            .videoId
-      )
+      ...(response.data.items || [])
+        .map(
+          (item) =>
+            item.contentDetails
+              .videoId
+        )
     );
 
-    token =
-      r.data.nextPageToken;
+    pageToken =
+      response.data.nextPageToken;
 
-  } while (token);
+  } while (pageToken);
 
-  const out = [];
+  const videos = [];
 
   for (
     let i = 0;
     i < ids.length;
     i += 50
   ) {
+    const response =
+      await yt().videos.list({
+        part: [
+          'snippet',
+          'status',
+          'statistics',
+          'contentDetails'
+        ],
 
-    const r =
-      await yt()
-        .videos
-        .list({
-          part: [
-            'snippet',
-            'status',
-            'statistics',
-            'contentDetails'
-          ],
+        id: ids.slice(
+          i,
+          i + 50
+        )
+      });
 
-          id:
-            ids.slice(
-              i,
-              i + 50
-            )
-        });
-
-    out.push(
-      ...(
-        r.data.items ||
-        []
-      )
+    videos.push(
+      ...(response.data.items ||
+        [])
     );
   }
 
-  return out;
+  return videos;
 }
 
 // =====================================================
@@ -421,158 +400,137 @@ async function allOwnedVideos() {
 // =====================================================
 
 function ageHours(iso) {
-
   return (
     Date.now() -
-    new Date(iso)
-      .getTime()
+    new Date(iso).getTime()
   ) / 36e5;
 }
 
-function scoreVideo(v) {
+function scoreVideo(video) {
+  const hours = Math.max(
+    1,
+    ageHours(
+      video.snippet.publishedAt
+    )
+  );
 
-  const h =
-    Math.max(
-      1,
-      ageHours(
-        v.snippet
-          .publishedAt
-      )
+  const views =
+    Number(
+      video.statistics
+        ?.viewCount || 0
+    );
+
+  const likes =
+    Number(
+      video.statistics
+        ?.likeCount || 0
+    );
+
+  const comments =
+    Number(
+      video.statistics
+        ?.commentCount || 0
     );
 
   return (
-    Number(
-      v.statistics
-        ?.viewCount ||
-      0
-    ) /
-      h +
-
-    Number(
-      v.statistics
-        ?.likeCount ||
-      0
-    ) *
-      2 /
-      h +
-
-    Number(
-      v.statistics
-        ?.commentCount ||
-      0
-    ) *
-      3 /
-      h
+    views / hours +
+    likes * 2 / hours +
+    comments * 3 / hours
   );
 }
 
 // =====================================================
-// FIND BEST POSTING HOURS
+// BEST POSTING HOURS
 // =====================================================
 
 function bestHours(videos) {
-
-  const pub =
+  const publicVideos =
     videos
       .filter(
-        (v) =>
-          v.status
+        (video) =>
+          video.status
             .privacyStatus ===
             'public' &&
-          v.snippet
+          video.snippet
             .publishedAt
       )
-      .map((v) => ({
-        h:
+      .map((video) => {
+        const hour =
           Number(
-            new Intl
-              .DateTimeFormat(
-                'en-US',
-                {
-                  timeZone:
-                    cfg.tz,
-
-                  hour:
-                    'numeric',
-
-                  hour12:
-                    false
-                }
+            new Intl.DateTimeFormat(
+              'en-US',
+              {
+                timeZone: cfg.tz,
+                hour: 'numeric',
+                hour12: false
+              }
+            ).format(
+              new Date(
+                video.snippet
+                  .publishedAt
               )
-              .format(
-                new Date(
-                  v.snippet
-                    .publishedAt
-                )
-              )
-          ) % 24,
+            )
+          ) % 24;
 
-        s:
-          scoreVideo(v)
-      }));
+        return {
+          h: hour,
+          s: scoreVideo(video)
+        };
+      });
 
-  const agg =
+  const aggregate =
     new Map();
 
-  for (const x of pub) {
-
-    const a =
-      agg.get(x.h) || {
+  for (
+    const item of publicVideos
+  ) {
+    const current =
+      aggregate.get(item.h) || {
         sum: 0,
         n: 0
       };
 
-    a.sum += x.s;
-    a.n++;
+    current.sum += item.s;
+    current.n++;
 
-    agg.set(
-      x.h,
-      a
+    aggregate.set(
+      item.h,
+      current
     );
   }
 
   const ranked =
-    [...agg]
-      .map(
-        ([h, a]) => ({
-          h,
-          avg:
-            a.sum /
-            a.n,
-          n:
-            a.n
-        })
-      )
+    [...aggregate]
+      .map(([h, a]) => ({
+        h,
+        avg: a.sum / a.n,
+        n: a.n
+      }))
       .sort(
         (a, b) =>
-          b.avg -
-          a.avg
+          b.avg - a.avg
       );
 
   const chosen = [];
 
   for (
-    const x of ranked
+    const item of ranked
   ) {
-
     if (
       chosen.every(
-        (h) =>
+        (hour) =>
           Math.min(
             Math.abs(
-              h - x.h
+              hour - item.h
             ),
-
             24 -
               Math.abs(
-                h - x.h
+                hour - item.h
               )
           ) >= 4
       )
     ) {
-      chosen.push(
-        x.h
-      );
+      chosen.push(item.h);
     }
 
     if (
@@ -583,15 +541,17 @@ function bestHours(videos) {
     }
   }
 
-  for (
-    const fallback of [
-      12,
-      18,
-      9,
-      21
-    ]
-  ) {
+  const fallbacks = [
+    12,
+    18,
+    9,
+    21
+  ];
 
+  for (
+    const fallback of
+      fallbacks
+  ) {
     if (
       chosen.length <
         cfg.postsPerDay &&
@@ -607,8 +567,7 @@ function bestHours(videos) {
 
   return chosen
     .sort(
-      (a, b) =>
-        a - b
+      (a, b) => a - b
     )
     .slice(
       0,
@@ -617,71 +576,61 @@ function bestHours(videos) {
 }
 
 // =====================================================
-// CREATE FUTURE POSTING SLOTS
+// NEXT POSTING SLOTS
 // =====================================================
 
 function nextSlots(
   hours,
   count
 ) {
-
   const slots = [];
 
-  const d =
+  const now =
     new Date();
 
   for (
     let day = 0;
-    slots.length <
-      count &&
+    slots.length < count &&
     day < 60;
     day++
   ) {
-
     for (
-      const h of hours
+      const hour of hours
     ) {
+      const target =
+        new Date(
+          now.getTime() +
+          day * 86400000
+        );
 
       const parts =
-        new Intl
-          .DateTimeFormat(
-            'en-CA',
-            {
-              timeZone:
-                cfg.tz,
+        new Intl.DateTimeFormat(
+          'en-CA',
+          {
+            timeZone: cfg.tz,
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit'
+          }
+        ).formatToParts(
+          target
+        );
 
-              year:
-                'numeric',
-
-              month:
-                '2-digit',
-
-              day:
-                '2-digit'
-            }
-          )
-          .formatToParts(
-            new Date(
-              d.getTime() +
-                day *
-                  86400000
-            )
-          );
-
-      const val =
+      const values =
         Object.fromEntries(
           parts.map(
-            (p) => [
-              p.type,
-              p.value
+            (part) => [
+              part.type,
+              part.value
             ]
           )
         );
 
-      const approx =
+      // Hawaii does not use daylight saving time.
+      const slot =
         new Date(
-          `${val.year}-${val.month}-${val.day}T${String(
-            h
+          `${values.year}-${values.month}-${values.day}T${String(
+            hour
           ).padStart(
             2,
             '0'
@@ -689,13 +638,11 @@ function nextSlots(
         );
 
       if (
-        approx >
+        slot.getTime() >
         Date.now() +
-          10 * 60000
+          10 * 60 * 1000
       ) {
-        slots.push(
-          approx
-        );
+        slots.push(slot);
       }
 
       if (
@@ -711,19 +658,16 @@ function nextSlots(
 }
 
 // =====================================================
-// SCHEDULE PRIVATE VIDEOS
+// AUTO-SCHEDULE PRIVATE VIDEOS
 // =====================================================
 
 async function schedulePrivateVideos() {
-
   const verified =
     await verifyDescription();
 
   if (!verified.ok) {
-
     return {
       scheduled: 0,
-
       reason:
         'Verification phrase not found in channel description'
     };
@@ -732,16 +676,16 @@ async function schedulePrivateVideos() {
   const videos =
     await allOwnedVideos();
 
-  const priv =
+  const privateVideos =
     videos
       .filter(
-        (v) =>
-          v.status
+        (video) =>
+          video.status
             .privacyStatus ===
             'private' &&
-          !v.status
+          !video.status
             .publishAt &&
-          v.status
+          video.status
             .uploadStatus ===
             'processed'
       )
@@ -763,50 +707,53 @@ async function schedulePrivateVideos() {
   const slots =
     nextSlots(
       hours,
-      priv.length
+      privateVideos.length
     );
 
-  let n = 0;
+  let scheduled = 0;
 
   for (
     let i = 0;
-    i < priv.length;
+    i <
+    privateVideos.length;
     i++
   ) {
+    if (!slots[i]) {
+      break;
+    }
 
-    await yt()
-      .videos
-      .update({
-        part: [
-          'status'
-        ],
+    const video =
+      privateVideos[i];
 
-        requestBody: {
-          id:
-            priv[i].id,
+    await yt().videos.update({
+      part: ['status'],
 
-          status: {
-            privacyStatus:
-              'private',
+      requestBody: {
+        id: video.id,
 
-            publishAt:
-              slots[
-                i
-              ].toISOString(),
+        status: {
+          privacyStatus:
+            'private',
 
-            selfDeclaredMadeForKids:
-              priv[i]
-                .status
+          publishAt:
+            slots[
+              i
+            ].toISOString(),
+
+          selfDeclaredMadeForKids:
+            Boolean(
+              video.status
                 .selfDeclaredMadeForKids
-          }
+            )
         }
-      });
+      }
+    });
 
-    n++;
+    scheduled++;
   }
 
   return {
-    scheduled: n,
+    scheduled,
     hours
   };
 }
@@ -818,69 +765,62 @@ async function schedulePrivateVideos() {
 async function gemini(
   prompt
 ) {
-
   if (!cfg.geminiKey) {
     throw new Error(
       'GEMINI_API_KEY missing'
     );
   }
 
-  const u =
+  const url =
     `https://generativelanguage.googleapis.com/v1beta/models/` +
     `${encodeURIComponent(
       cfg.geminiModel
     )}:generateContent?key=` +
-    `${encodeURIComponent(
+    encodeURIComponent(
       cfg.geminiKey
-    )}`;
-
-  const r =
-    await fetch(
-      u,
-      {
-        method:
-          'POST',
-
-        headers: {
-          'content-type':
-            'application/json'
-        },
-
-        body:
-          JSON.stringify({
-            contents: [
-              {
-                parts: [
-                  {
-                    text:
-                      prompt
-                  }
-                ]
-              }
-            ]
-          })
-      }
     );
 
-  if (!r.ok) {
+  const response =
+    await fetch(url, {
+      method: 'POST',
+
+      headers: {
+        'content-type':
+          'application/json'
+      },
+
+      body:
+        JSON.stringify({
+          contents: [
+            {
+              parts: [
+                {
+                  text: prompt
+                }
+              ]
+            }
+          ]
+        })
+    });
+
+  if (!response.ok) {
     throw new Error(
-      `Gemini ${r.status}: ${await r.text()}`
+      `Gemini ${response.status}: ${await response.text()}`
     );
   }
 
-  const j =
-    await r.json();
+  const data =
+    await response.json();
 
   return (
-    j.candidates?.[0]
-      ?.content
-      ?.parts
+    data.candidates?.[0]
+      ?.content?.parts
       ?.map(
-        (p) =>
-          p.text || ''
+        (part) =>
+          part.text || ''
       )
       .join('')
-      .trim()
+      .trim() || ''
   );
 }
 
@@ -889,12 +829,10 @@ async function gemini(
 // =====================================================
 
 async function classifyAndReply() {
-
   const verified =
     await verifyDescription();
 
   if (!verified.ok) {
-
     return {
       handled: 0,
       reason:
@@ -902,184 +840,176 @@ async function classifyAndReply() {
     };
   }
 
-  const r =
+  const response =
     await yt()
-      .commentThreads
-      .list({
-        part: [
-          'snippet'
-        ],
+      .commentThreads.list({
+        part: ['snippet'],
 
         allThreadsRelatedToChannelId:
-          verified
-            .channel
-            .id,
+          verified.channel.id,
 
-        maxResults:
-          50,
+        maxResults: 50,
 
-        order:
-          'time'
+        order: 'time'
       });
 
   let handled = 0;
 
   for (
-    const th of
-      r.data.items ||
-      []
+    const thread of
+      response.data.items || []
   ) {
-
-    const c =
-      th.snippet
+    const comment =
+      thread.snippet
         .topLevelComment;
 
     const id =
-      c.id;
+      comment.id;
+
+    const alreadyHandled =
+      db.prepare(`
+        SELECT 1
+        FROM handled_comments
+        WHERE comment_id=?
+      `).get(id);
 
     if (
-      db
-        .prepare(
-          'SELECT 1 FROM handled_comments WHERE comment_id=?'
-        )
-        .get(id)
+      alreadyHandled
     ) {
       continue;
     }
 
-    const s =
-      c.snippet;
+    const snippet =
+      comment.snippet;
 
     if (
-      s.authorChannelId
+      snippet.authorChannelId
         ?.value ===
       verified.channel.id
     ) {
-
-      db
-        .prepare(
-          'INSERT OR IGNORE INTO handled_comments(comment_id,action) VALUES(?,?)'
-        )
-        .run(
-          id,
-          'own'
-        );
+      db.prepare(`
+        INSERT OR IGNORE INTO handled_comments
+        (comment_id, action)
+        VALUES (?,?)
+      `).run(
+        id,
+        'own'
+      );
 
       continue;
     }
 
+    const commentText =
+      snippet.textOriginal ||
+      snippet.textDisplay ||
+      '';
+
     const verdict =
       (
-        await gemini(
-          `Classify this YouTube comment. Return only QUESTION, SPAM, or NORMAL. A question includes requests for information even without a question mark. Comment: ${JSON.stringify(
-            s.textOriginal ||
-              s.textDisplay ||
-              ''
-          )}`
-        )
-      ).toUpperCase();
+        await gemini(`
+Classify this YouTube comment.
+
+Return ONLY one word:
+QUESTION
+SPAM
+NORMAL
+
+A question includes requests for information even without a question mark.
+
+Comment:
+${JSON.stringify(
+  commentText
+)}
+        `)
+      )
+        .trim()
+        .toUpperCase();
 
     if (
       verdict.includes(
         'QUESTION'
       )
     ) {
+      db.prepare(`
+        INSERT OR IGNORE INTO questions
+        (
+          comment_id,
+          author,
+          text,
+          video_id,
+          created_at
+        )
+        VALUES (?,?,?,?,?)
+      `).run(
+        id,
+        snippet.authorDisplayName ||
+          'Unknown',
+        commentText,
+        thread.snippet.videoId,
+        snippet.publishedAt
+      );
 
-      db
-        .prepare(`
-          INSERT OR IGNORE INTO questions(
-            comment_id,
-            author,
-            text,
-            video_id,
-            created_at
-          )
-          VALUES(?,?,?,?,?)
-        `)
-        .run(
-          id,
-          s.authorDisplayName,
-          s.textOriginal ||
-            s.textDisplay,
-          th.snippet.videoId,
-          s.publishedAt
-        );
-
-      db
-        .prepare(`
-          INSERT OR IGNORE INTO handled_comments(
-            comment_id,
-            action
-          )
-          VALUES(?,?)
-        `)
-        .run(
-          id,
-          'question'
-        );
-
+      db.prepare(`
+        INSERT OR IGNORE INTO handled_comments
+        (comment_id, action)
+        VALUES (?,?)
+      `).run(
+        id,
+        'question'
+      );
     } else if (
       verdict.includes(
         'SPAM'
       )
     ) {
-
-      db
-        .prepare(`
-          INSERT OR IGNORE INTO handled_comments(
-            comment_id,
-            action
-          )
-          VALUES(?,?)
-        `)
-        .run(
-          id,
-          'spam'
-        );
-
+      db.prepare(`
+        INSERT OR IGNORE INTO handled_comments
+        (comment_id, action)
+        VALUES (?,?)
+      `).run(
+        id,
+        'spam'
+      );
     } else {
-
       const reply =
-        await gemini(
-          `Write one short, friendly, positive, family-friendly YouTube reply as the creator KindCrafted. Do not pretend to know facts not in the comment. Do not ask a question. Comment: ${JSON.stringify(
-            s.textOriginal ||
-              s.textDisplay ||
-              ''
-          )}`
-        );
+        await gemini(`
+Write one short, friendly, positive, family-friendly YouTube reply as the creator KindCrafted.
+
+Do not pretend to know facts not in the comment.
+Do not ask a question.
+
+Comment:
+${JSON.stringify(
+  commentText
+)}
+        `);
 
       await yt()
-        .comments
-        .insert({
-          part: [
-            'snippet'
-          ],
+        .comments.insert({
+          part: ['snippet'],
 
           requestBody: {
             snippet: {
-              parentId:
-                id,
-
+              parentId: id,
               textOriginal:
                 reply
             }
           }
         });
 
-      db
-        .prepare(`
-          INSERT OR IGNORE INTO handled_comments(
-            comment_id,
-            action,
-            reply
-          )
-          VALUES(?,?,?)
-        `)
-        .run(
-          id,
-          'replied',
+      db.prepare(`
+        INSERT OR IGNORE INTO handled_comments
+        (
+          comment_id,
+          action,
           reply
-        );
+        )
+        VALUES (?,?,?)
+      `).run(
+        id,
+        'replied',
+        reply
+      );
     }
 
     handled++;
@@ -1091,101 +1021,96 @@ async function classifyAndReply() {
 }
 
 // =====================================================
-// STATUS API
+// API STATUS
 // =====================================================
 
 app.get(
   '/api/status',
-  async (
-    req,
-    res
-  ) => {
-
+  async (req, res) => {
     try {
-
-      const v =
+      const verified =
         await verifyDescription();
 
       const videos =
         await allOwnedVideos();
 
+      const privateQueue =
+        videos
+          .filter(
+            (video) =>
+              video.status
+                .privacyStatus ===
+              'private'
+          )
+          .sort(
+            (a, b) =>
+              new Date(
+                a.snippet
+                  .publishedAt
+              ) -
+              new Date(
+                b.snippet
+                  .publishedAt
+              )
+          )
+          .map(
+            (video) => ({
+              id: video.id,
+
+              title:
+                video.snippet
+                  .title,
+
+              publishAt:
+                video.status
+                  .publishAt ||
+                null
+            })
+          );
+
+      const questions =
+        db.prepare(`
+          SELECT *
+          FROM questions
+          WHERE status='pending'
+          ORDER BY created_at DESC
+        `).all();
+
       res.json({
-        connected:
-          true,
+        connected: true,
 
         verified:
-          v.ok,
+          verified.ok,
+
+        verificationPhrase:
+          cfg.phrase,
 
         channel: {
+          id:
+            verified.channel.id,
+
           title:
-            v.channel
-              .snippet
-              .title,
+            verified.channel
+              .snippet.title,
 
           stats:
-            v.channel
+            verified.channel
               .statistics
         },
 
         bestHours:
-          bestHours(
-            videos
-          ),
+          bestHours(videos),
 
-        privateQueue:
-          videos
-            .filter(
-              (x) =>
-                x.status
-                  .privacyStatus ===
-                'private'
-            )
-            .sort(
-              (a, b) =>
-                new Date(
-                  a.snippet
-                    .publishedAt
-                ) -
-                new Date(
-                  b.snippet
-                    .publishedAt
-                )
-            )
-            .map(
-              (x) => ({
-                id:
-                  x.id,
+        privateQueue,
 
-                title:
-                  x.snippet
-                    .title,
-
-                publishAt:
-                  x.status
-                    .publishAt ||
-                  null
-              })
-            ),
-
-        questions:
-          db
-            .prepare(`
-              SELECT *
-              FROM questions
-              WHERE status='pending'
-              ORDER BY created_at DESC
-            `)
-            .all()
+        questions
       });
-
-    } catch (e) {
-
+    } catch (error) {
       res.json({
-        connected:
-          false,
-
+        connected: false,
+        verified: false,
         error:
-          e.message
+          error.message
       });
     }
   }
@@ -1197,24 +1122,22 @@ app.get(
 
 app.post(
   '/api/run/schedule',
-  async (
-    req,
-    res
-  ) => {
-
+  async (req, res) => {
     try {
-
       res.json(
         await schedulePrivateVideos()
       );
-
-    } catch (e) {
+    } catch (error) {
+      console.error(
+        '[schedule]',
+        error
+      );
 
       res
         .status(500)
         .json({
           error:
-            e.message
+            error.message
         });
     }
   }
@@ -1226,53 +1149,45 @@ app.post(
 
 app.post(
   '/api/run/comments',
-  async (
-    req,
-    res
-  ) => {
-
+  async (req, res) => {
     try {
-
       res.json(
         await classifyAndReply()
       );
-
-    } catch (e) {
+    } catch (error) {
+      console.error(
+        '[comments]',
+        error
+      );
 
       res
         .status(500)
         .json({
           error:
-            e.message
+            error.message
         });
     }
   }
 );
 
 // =====================================================
-// ANSWER QUESTION
+// QUESTION REPLY
 // =====================================================
 
 app.post(
   '/api/questions/:id/reply',
-  async (
-    req,
-    res
-  ) => {
-
+  async (req, res) => {
     try {
+      const question =
+        db.prepare(`
+          SELECT *
+          FROM questions
+          WHERE comment_id=?
+        `).get(
+          req.params.id
+        );
 
-      const q =
-        db
-          .prepare(
-            'SELECT * FROM questions WHERE comment_id=?'
-          )
-          .get(
-            req.params.id
-          );
-
-      if (!q) {
-
+      if (!question) {
         return res
           .status(404)
           .json({
@@ -1283,12 +1198,10 @@ app.post(
 
       const text =
         String(
-          req.body.text ||
-            ''
+          req.body.text || ''
         ).trim();
 
       if (!text) {
-
         return res
           .status(400)
           .json({
@@ -1298,16 +1211,13 @@ app.post(
       }
 
       await yt()
-        .comments
-        .insert({
-          part: [
-            'snippet'
-          ],
+        .comments.insert({
+          part: ['snippet'],
 
           requestBody: {
             snippet: {
               parentId:
-                q.comment_id,
+                question.comment_id,
 
               textOriginal:
                 text
@@ -1315,27 +1225,23 @@ app.post(
           }
         });
 
-      db
-        .prepare(`
-          UPDATE questions
-          SET status='replied'
-          WHERE comment_id=?
-        `)
-        .run(
-          q.comment_id
-        );
+      db.prepare(`
+        UPDATE questions
+        SET status='replied'
+        WHERE comment_id=?
+      `).run(
+        question.comment_id
+      );
 
       res.json({
         ok: true
       });
-
-    } catch (e) {
-
+    } catch (error) {
       res
         .status(500)
         .json({
           error:
-            e.message
+            error.message
         });
     }
   }
@@ -1347,24 +1253,88 @@ app.post(
 
 app.post(
   '/api/questions/:id/ignore',
-  (
-    req,
-    res
-  ) => {
-
-    db
-      .prepare(`
-        UPDATE questions
-        SET status='ignored'
-        WHERE comment_id=?
-      `)
-      .run(
-        req.params.id
-      );
+  (req, res) => {
+    db.prepare(`
+      UPDATE questions
+      SET status='ignored'
+      WHERE comment_id=?
+    `).run(
+      req.params.id
+    );
 
     res.json({
       ok: true
     });
+  }
+);
+
+// =====================================================
+// HEALTH CHECK
+// =====================================================
+
+app.get(
+  '/health',
+  (req, res) => {
+    res.json({
+      ok: true,
+      service:
+        'KindCrafted Creator Manager'
+    });
+  }
+);
+
+// =====================================================
+// WEBSITE
+// IMPORTANT: THIS FIXES "Cannot GET /"
+// =====================================================
+
+const publicDir =
+  path.join(
+    __dirname,
+    'public'
+  );
+
+const indexFile =
+  path.join(
+    publicDir,
+    'index.html'
+  );
+
+console.log(
+  `[website] Public directory: ${publicDir}`
+);
+
+console.log(
+  `[website] index.html exists: ${fs.existsSync(
+    indexFile
+  )}`
+);
+
+app.use(
+  express.static(
+    publicDir
+  )
+);
+
+app.get(
+  '/',
+  (req, res) => {
+    if (
+      !fs.existsSync(
+        indexFile
+      )
+    ) {
+      return res
+        .status(500)
+        .send(`
+          <h1>KindCrafted Creator Manager</h1>
+          <p>Server is online, but public/index.html was not found.</p>
+        `);
+    }
+
+    res.sendFile(
+      indexFile
+    );
   }
 );
 
@@ -1375,7 +1345,6 @@ app.post(
 let busy = false;
 
 async function cycle() {
-
   if (busy) {
     return;
   }
@@ -1383,38 +1352,53 @@ async function cycle() {
   busy = true;
 
   try {
-
     if (
-      getKV(
-        'tokens'
-      )
+      getKV('tokens')
     ) {
+      console.log(
+        '[cycle] Starting'
+      );
 
-      await schedulePrivateVideos();
+      try {
+        const scheduleResult =
+          await schedulePrivateVideos();
 
-      await classifyAndReply();
+        console.log(
+          '[cycle] Schedule:',
+          scheduleResult
+        );
+      } catch (error) {
+        console.error(
+          '[cycle:schedule]',
+          error.message
+        );
+      }
+
+      try {
+        const commentResult =
+          await classifyAndReply();
+
+        console.log(
+          '[cycle] Comments:',
+          commentResult
+        );
+      } catch (error) {
+        console.error(
+          '[cycle:comments]',
+          error.message
+        );
+      }
     }
-
-  } catch (e) {
-
-    console.error(
-      '[cycle]',
-      e.message
-    );
-
   } finally {
-
     busy = false;
   }
 }
 
-// Run every 10 minutes.
 setInterval(
   cycle,
   10 * 60 * 1000
 );
 
-// First check 15 seconds after startup.
 setTimeout(
   cycle,
   15000
@@ -1426,14 +1410,22 @@ setTimeout(
 
 app.listen(
   cfg.port,
+  '0.0.0.0',
   () => {
-
     console.log(
       `KindCrafted Creator Manager running on ${cfg.port}`
     );
 
     console.log(
       `[server] Base URL: ${cfg.base}`
+    );
+
+    console.log(
+      `[server] OAuth redirect: ${cfg.redirectUri}`
+    );
+
+    console.log(
+      `[server] Dashboard: ${cfg.base}/`
     );
   }
 );
