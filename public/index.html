@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>KindCrafted Creator Manager</title>
+
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: Arial, sans-serif;
+      background: #0b1020;
+      color: white;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .card {
+      width: min(600px, 92%);
+      background: #151c33;
+      border: 1px solid #293455;
+      border-radius: 20px;
+      padding: 35px;
+      text-align: center;
+    }
+
+    h1 {
+      margin-top: 0;
+      font-size: 32px;
+    }
+
+    p {
+      color: #b9c4df;
+      line-height: 1.6;
+    }
+
+    button, a.button {
+      display: inline-block;
+      border: none;
+      border-radius: 10px;
+      padding: 14px 22px;
+      margin: 8px;
+      background: #4f7cff;
+      color: white;
+      font-size: 16px;
+      font-weight: bold;
+      cursor: pointer;
+      text-decoration: none;
+    }
+
+    button:hover, a.button:hover {
+      opacity: 0.9;
+    }
+
+    #status {
+      margin-top: 25px;
+      padding: 18px;
+      border-radius: 12px;
+      background: #0e1427;
+      text-align: left;
+      white-space: pre-wrap;
+    }
+
+    .good {
+      color: #67e89a;
+    }
+
+    .bad {
+      color: #ff7777;
+    }
+  </style>
+</head>
+
+<body>
+
+<div class="card">
+
+  <h1>🎬 KindCrafted Creator Manager</h1>
+
+  <p>
+    Connect your KindCrafted YouTube channel to manage
+    videos, scheduling, comments, and creator tools.
+  </p>
+
+  <a class="button" href="/auth/google">
+    Connect YouTube
+  </a>
+
+  <button onclick="checkStatus()">
+    Check Connection
+  </button>
+
+  <div id="status">
+    Checking YouTube connection...
+  </div>
+
+</div>
+
+<script>
+
+async function checkStatus() {
+
+  const box = document.getElementById("status");
+
+  box.textContent = "Checking...";
+
+  try {
+
+    const response = await fetch("/api/status");
+
+    const data = await response.json();
+
+    if (!data.connected) {
+
+      box.innerHTML =
+        '<span class="bad">❌ YouTube is not connected.</span>\n\n' +
+        (data.error || "Click Connect YouTube.");
+
+      return;
+    }
+
+    const channel = data.channel || {};
+
+    box.innerHTML =
+      '<span class="good">✅ YouTube Connected</span>\n\n' +
+      'Channel: ' + (channel.title || "Unknown") + '\n' +
+      'Verified: ' + (data.verified ? "Yes ✅" : "No ❌") + '\n' +
+      'Private videos waiting: ' +
+      (data.privateQueue ? data.privateQueue.length : 0) +
+      '\n\nCreator Manager is online.';
+
+  } catch (error) {
+
+    box.innerHTML =
+      '<span class="bad">❌ Could not contact the server.</span>\n\n' +
+      error.message;
+
+  }
+
+}
+
+checkStatus();
+
+</script>
+
+</body>
+</html>
