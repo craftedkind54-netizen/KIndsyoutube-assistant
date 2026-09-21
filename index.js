@@ -54,28 +54,28 @@ const cfg = {
   geminiModel:
     process.env.GEMINI_MODEL || '',
 
-  // EXACTLY TWO MAXIMUM PER HAWAII DAY
-  postsPerDay: 2,
-
   timezone:
     process.env.TIMEZONE ||
     'Pacific/Honolulu',
 
-  recentVideoLimit:
+  // Analyze videos from the previous 8 weeks.
+  analyticsWeeks:
     Math.max(
-      5,
+      1,
       Number(
-        process.env.RECENT_VIDEO_LIMIT ||
-        30
+        process.env.ANALYTICS_WEEKS || 8
       )
     ),
 
+  // Always schedule exactly two maximum.
+  postsPerDay: 2,
+
+  // Never schedule something only a few minutes away.
   scheduleBufferMinutes:
     Math.max(
       10,
       Number(
-        process.env.SCHEDULE_BUFFER_MINUTES ||
-        30
+        process.env.SCHEDULE_BUFFER_MINUTES || 30
       )
     )
 };
@@ -180,7 +180,7 @@ function deleteKV(key) {
 }
 
 // =====================================================
-// AUTOMATIC POSTING STATE
+// AUTOMATION STATE
 // =====================================================
 
 function automationEnabled() {
@@ -201,10 +201,10 @@ function setAutomationEnabled(
 }
 
 // =====================================================
-// HAWAII DATE HELPERS
+// HAWAII DATE / TIME HELPERS
 // =====================================================
 
-function hawaiiDateParts(
+function hawaiiParts(
   date = new Date()
 ) {
   const parts =
@@ -221,7 +221,19 @@ function hawaiiDateParts(
           '2-digit',
 
         day:
-          '2-digit'
+          '2-digit',
+
+        hour:
+          '2-digit',
+
+        minute:
+          '2-digit',
+
+        second:
+          '2-digit',
+
+        hourCycle:
+          'h23'
       }
     ).formatToParts(
       date
@@ -245,25 +257,28 @@ function hawaiiDateParts(
 
   return {
     year:
-      Number(
-        values.year
-      ),
+      Number(values.year),
 
     month:
-      Number(
-        values.month
-      ),
+      Number(values.month),
 
     day:
-      Number(
-        values.day
-      )
+      Number(values.day),
+
+    hour:
+      Number(values.hour),
+
+    minute:
+      Number(values.minute),
+
+    second:
+      Number(values.second)
   };
 }
 
 function todayKey() {
   const date =
-    hawaiiDateParts();
+    hawaiiParts();
 
   return (
     `${date.year}-` +
@@ -299,6 +314,12 @@ function emptyDailyState(
 
     completed:
       false,
+
+    calculatedAt:
+      null,
+
+    recommendedTimes:
+      [],
 
     scheduledVideoIds:
       [],
@@ -336,6 +357,17 @@ function getDailyState(
         Boolean(
           parsed.completed
         ),
+
+      calculatedAt:
+        parsed.calculatedAt ||
+        null,
+
+      recommendedTimes:
+        Array.isArray(
+          parsed.recommendedTimes
+        )
+          ? parsed.recommendedTimes
+          : [],
 
       scheduledVideoIds:
         Array.isArray(
@@ -531,7 +563,7 @@ app.get(
 );
 
 // =====================================================
-// CHANNEL
+// YOUTUBE CHANNEL
 // =====================================================
 
 async function channelInfo() {
@@ -584,7 +616,7 @@ async function verifyDescription() {
 }
 
 // =====================================================
-// GET ALL VIDEOS
+// LOAD CHANNEL VIDEOS
 // =====================================================
 
 async function allOwnedVideos() {
@@ -682,21 +714,155 @@ async function allOwnedVideos() {
 }
 
 // =====================================================
-// PERFORMANCE
+// SAVE ANALYTICS SNAPSHOTS
 // =====================================================
 
 function numeric(value) {
-  const result =
+  const number =
     Number(
       value || 0
     );
 
   return Number.isFinite(
-    result
+    number
   )
-    ? result
+    ? number
     : 0;
 }
+
+function savePerformanceSnapshots(
+  videos
+) {
+  const insert =
+    db.prepare(`
+      INSERT INTO performance
+      (
+        video_id,
+        sampled_at,
+        views,
+        likes,
+        comments
+      )
+      VALUES (?,?,?,?,?)
+    `);
+
+  const now =
+    new Date()
+      .toISOString();
+
+  const transaction =
+    db.transaction(
+      rows => {
+        for (
+          const video of
+            rows
+        ) {
+          insert.run(
+            video.id,
+
+            now,
+
+            numeric(
+              video
+                .statistics
+                ?.viewCount
+            ),
+
+            numeric(
+              video
+                .statistics
+                ?.likeCount
+            ),
+
+            numeric(
+              video
+                .statistics
+                ?.commentCount
+            )
+          );
+        }
+      }
+    );
+
+  const publicVideos =
+    videos.filter(
+      video =>
+        video
+          .status
+          ?.privacyStatus ===
+        'public'
+    );
+
+  transaction(
+    publicVideos
+  );
+
+  // Remove snapshots older than 90 days.
+  db.prepare(`
+    DELETE FROM performance
+    WHERE sampled_at < datetime('now', '-90 days')
+  `).run();
+}
+
+// =====================================================
+// ANALYTICS WINDOW
+// =====================================================
+
+function analyticsCutoff() {
+  return (
+    Date.now() -
+    cfg.analyticsWeeks *
+      7 *
+      24 *
+      60 *
+      60 *
+      1000
+  );
+}
+
+function videosForAnalytics(
+  videos
+) {
+  const cutoff =
+    analyticsCutoff();
+
+  return videos
+    .filter(
+      video =>
+        video
+          .status
+          ?.privacyStatus ===
+          'public' &&
+
+        video
+          .snippet
+          ?.publishedAt &&
+
+        new Date(
+          video
+            .snippet
+            .publishedAt
+        ).getTime() >=
+        cutoff
+    )
+    .sort(
+      (a, b) =>
+        new Date(
+          b
+            .snippet
+            .publishedAt
+        ) -
+        new Date(
+          a
+            .snippet
+            .publishedAt
+        )
+    );
+}
+
+// =====================================================
+// VIDEO PERFORMANCE
+// =====================================================
 
 function ageHours(
   publishedAt
@@ -718,36 +884,41 @@ function ageHours(
   );
 }
 
+function ageDays(
+  publishedAt
+) {
+  return (
+    ageHours(
+      publishedAt
+    ) /
+    24
+  );
+}
+
 function recencyWeight(
   video
 ) {
   const days =
-    ageHours(
+    ageDays(
       video
         .snippet
         ?.publishedAt
-    ) /
-    24;
+    );
 
-  return Math.exp(
-    -days / 30
+  // Recent videos matter more,
+  // but older videos from the selected
+  // analytics window still count.
+  return Math.max(
+    0.25,
+    Math.exp(
+      -days / 35
+    )
   );
 }
 
-function performanceScore(
+function engagementScore(
   video
 ) {
-  const hours =
-    Math.max(
-      6,
-
-      ageHours(
-        video
-          .snippet
-          ?.publishedAt
-      )
-    );
-
   const views =
     numeric(
       video
@@ -769,20 +940,52 @@ function performanceScore(
         ?.commentCount
     );
 
-  const velocity =
+  const hours =
+    Math.max(
+      12,
+
+      ageHours(
+        video
+          .snippet
+          ?.publishedAt
+      )
+    );
+
+  const viewVelocity =
     views /
-      hours +
+    hours;
 
-    likes *
-      4 /
-      hours +
+  const likeVelocity =
+    likes /
+    hours;
 
-    comments *
-      8 /
-      hours;
+  const commentVelocity =
+    comments /
+    hours;
+
+  const engagementRate =
+    views > 0
+      ? (
+          likes * 2 +
+          comments * 4
+        ) /
+        views
+      : 0;
+
+  const score =
+    viewVelocity +
+
+    likeVelocity *
+      5 +
+
+    commentVelocity *
+      10 +
+
+    engagementRate *
+      100;
 
   return (
-    velocity *
+    score *
     recencyWeight(
       video
     )
@@ -790,7 +993,133 @@ function performanceScore(
 }
 
 // =====================================================
-// LOCAL PUBLISH TIME
+// SNAPSHOT PERFORMANCE BOOST
+// =====================================================
+
+function snapshotGrowthScore(
+  videoId
+) {
+  const rows =
+    db.prepare(`
+      SELECT
+        sampled_at,
+        views,
+        likes,
+        comments
+      FROM performance
+      WHERE video_id=?
+      ORDER BY sampled_at ASC
+    `).all(
+      videoId
+    );
+
+  if (
+    rows.length <
+    2
+  ) {
+    return 0;
+  }
+
+  const first =
+    rows[0];
+
+  const last =
+    rows[
+      rows.length - 1
+    ];
+
+  const start =
+    new Date(
+      first.sampled_at
+    ).getTime();
+
+  const end =
+    new Date(
+      last.sampled_at
+    ).getTime();
+
+  const hours =
+    Math.max(
+      1,
+      (
+        end -
+        start
+      ) /
+      3600000
+    );
+
+  const views =
+    Math.max(
+      0,
+      numeric(
+        last.views
+      ) -
+      numeric(
+        first.views
+      )
+    );
+
+  const likes =
+    Math.max(
+      0,
+      numeric(
+        last.likes
+      ) -
+      numeric(
+        first.likes
+      )
+    );
+
+  const comments =
+    Math.max(
+      0,
+      numeric(
+        last.comments
+      ) -
+      numeric(
+        first.comments
+      )
+    );
+
+  return (
+    views /
+      hours +
+
+    likes *
+      5 /
+      hours +
+
+    comments *
+      10 /
+      hours
+  );
+}
+
+function finalPerformanceScore(
+  video
+) {
+  const lifetime =
+    engagementScore(
+      video
+    );
+
+  const recentGrowth =
+    snapshotGrowthScore(
+      video.id
+    );
+
+  // Current video performance is the base.
+  // Snapshot growth adds extra evidence as
+  // the app gathers data throughout the week.
+  return (
+    lifetime +
+    recentGrowth *
+      1.5
+  );
+}
+
+// =====================================================
+// LOCAL VIDEO POSTING TIME
 // =====================================================
 
 function localTimeParts(
@@ -879,44 +1208,24 @@ function circularDistance(
 }
 
 // =====================================================
-// BEST 2 TIMES
+// CALCULATE BEST POSTING TIMES
 // =====================================================
 
-function bestPostingTimes(
+function calculateBestPostingTimes(
   videos
 ) {
-  const recentPublic =
-    videos
-      .filter(
-        video =>
-          video
-            .status
-            ?.privacyStatus ===
-            'public' &&
+  const analyticsVideos =
+    videosForAnalytics(
+      videos
+    );
 
-          video
-            .snippet
-            ?.publishedAt
-      )
-      .sort(
-        (a, b) =>
-          new Date(
-            b
-              .snippet
-              .publishedAt
-          ) -
-          new Date(
-            a
-              .snippet
-              .publishedAt
-          )
-      )
-      .slice(
-        0,
-        cfg.recentVideoLimit
-      );
+  console.log(
+    `[analytics] Analyzing ${analyticsVideos.length} public videos from the past ${cfg.analyticsWeeks} week(s).`
+  );
 
-  const fallbacks = [
+  // Used only if there is not enough
+  // historical evidence yet.
+  const fallbackTimes = [
     10 * 60,
     17 * 60,
     13 * 60,
@@ -924,10 +1233,10 @@ function bestPostingTimes(
   ];
 
   if (
-    recentPublic.length ===
+    analyticsVideos.length ===
     0
   ) {
-    return fallbacks
+    return fallbackTimes
       .slice(
         0,
         2
@@ -953,46 +1262,50 @@ function bestPostingTimes(
 
   for (
     const video of
-      recentPublic
+      analyticsVideos
   ) {
-    const rawMinute =
+    const originalMinute =
       localMinuteOfDay(
         video
           .snippet
           .publishedAt
       );
 
+    // Group videos into 30-minute posting windows.
     const minuteOfDay =
       (
         Math.round(
-          rawMinute /
+          originalMinute /
           30
         ) *
         30
       ) %
       1440;
 
-    const existing =
+    const score =
+      finalPerformanceScore(
+        video
+      );
+
+    const current =
       buckets.get(
         minuteOfDay
       ) || {
-        score:
+        totalScore:
           0,
 
         samples:
           0
       };
 
-    existing.score +=
-      performanceScore(
-        video
-      );
+    current.totalScore +=
+      score;
 
-    existing.samples++;
+    current.samples++;
 
     buckets.set(
       minuteOfDay,
-      existing
+      current
     );
   }
 
@@ -1004,22 +1317,37 @@ function bestPostingTimes(
         ([
           minuteOfDay,
           data
-        ]) => ({
-          minuteOfDay,
+        ]) => {
+          // Slightly reward time slots
+          // that have multiple successful examples.
+          const confidence =
+            1 +
+            Math.min(
+              data.samples,
+              5
+            ) *
+              0.05;
 
-          score:
-            data.score /
-            Math.max(
-              1,
-              data.samples
-            ),
+          return {
+            minuteOfDay,
 
-          samples:
-            data.samples,
+            score:
+              (
+                data.totalScore /
+                Math.max(
+                  1,
+                  data.samples
+                )
+              ) *
+              confidence,
 
-          fallback:
-            false
-        })
+            samples:
+              data.samples,
+
+            fallback:
+              false
+          };
+        }
       )
       .sort(
         (a, b) =>
@@ -1027,23 +1355,26 @@ function bestPostingTimes(
           a.score
       );
 
-  const selected = [];
+  const selected =
+    [];
 
   for (
     const candidate of
       ranked
   ) {
-    const acceptable =
+    const farEnough =
       selected.every(
-        selectedTime =>
+        existing =>
           circularDistance(
-            selectedTime.minuteOfDay,
+            existing.minuteOfDay,
             candidate.minuteOfDay
           ) >=
           180
       );
 
-    if (acceptable) {
+    if (
+      farEnough
+    ) {
       selected.push(
         candidate
       );
@@ -1057,9 +1388,11 @@ function bestPostingTimes(
     }
   }
 
+  // If historical data only produced
+  // one usable time, add a fallback.
   for (
     const minuteOfDay of
-      fallbacks
+      fallbackTimes
   ) {
     if (
       selected.length >=
@@ -1068,17 +1401,19 @@ function bestPostingTimes(
       break;
     }
 
-    const acceptable =
+    const farEnough =
       selected.every(
-        selectedTime =>
+        existing =>
           circularDistance(
-            selectedTime.minuteOfDay,
+            existing.minuteOfDay,
             minuteOfDay
           ) >=
           180
       );
 
-    if (acceptable) {
+    if (
+      farEnough
+    ) {
       selected.push({
         minuteOfDay,
 
@@ -1107,7 +1442,7 @@ function bestPostingTimes(
 }
 
 // =====================================================
-// DISPLAY TIME
+// TIME DISPLAY
 // =====================================================
 
 function displayTime(
@@ -1149,7 +1484,7 @@ function displayTime(
 function recommendedTimesForApi(
   videos
 ) {
-  return bestPostingTimes(
+  return calculateBestPostingTimes(
     videos
   ).map(
     time => ({
@@ -1323,14 +1658,15 @@ function localDateTimeToUTC(
 }
 
 // =====================================================
-// TODAY ONLY
+// TODAY'S TWO SLOTS
 // =====================================================
 
 function todaySlots(
-  postingTimes
+  postingTimes,
+  allowPassedTimes = false
 ) {
   const today =
-    hawaiiDateParts();
+    hawaiiParts();
 
   const minimumTime =
     Date.now() +
@@ -1361,8 +1697,9 @@ function todaySlots(
     )
     .filter(
       date =>
+        allowPassedTimes ||
         date.getTime() >
-        minimumTime
+          minimumTime
     )
     .sort(
       (a, b) =>
@@ -1372,7 +1709,7 @@ function todaySlots(
 }
 
 // =====================================================
-// YOUTUBE STATUS BODY
+// VIDEO STATUS
 // =====================================================
 
 function scheduledStatus(
@@ -1426,7 +1763,7 @@ function privateStatus(
 }
 
 // =====================================================
-// SCHEDULE TODAY ONLY
+// DAILY AUTOMATIC SCHEDULER
 // =====================================================
 
 async function scheduleTodayOnly() {
@@ -1466,14 +1803,15 @@ async function scheduleTodayOnly() {
   const dateKey =
     todayKey();
 
-  const state =
+  const existingState =
     getDailyState(
       dateKey
     );
 
-  // Already handled today.
+  // Prevent the 10-minute loop from
+  // scheduling another pair later today.
   if (
-    state.completed
+    existingState.completed
   ) {
     return {
       enabled:
@@ -1488,27 +1826,101 @@ async function scheduleTodayOnly() {
       alreadyCompleted:
         true,
 
+      recommendedTimes:
+        existingState
+          .recommendedTimes,
+
       today:
-        state.scheduled
+        existingState
+          .scheduled
     };
   }
+
+  console.log(
+    `[daily] Beginning analytics calculation for ${dateKey}`
+  );
 
   const videos =
     await allOwnedVideos();
 
-  const recommended =
-    bestPostingTimes(
+  // Save another analytics snapshot.
+  savePerformanceSnapshots(
+    videos
+  );
+
+  // Fresh calculation every Hawaii day.
+  const postingTimes =
+    calculateBestPostingTimes(
       videos
     );
 
-  // IMPORTANT:
-  // Only today's slots are generated.
-  const slots =
-    todaySlots(
-      recommended
+  const recommendedTimes =
+    postingTimes.map(
+      time => ({
+        hour:
+          Math.floor(
+            time.minuteOfDay /
+            60
+          ),
+
+        minute:
+          time.minuteOfDay %
+          60,
+
+        minuteOfDay:
+          time.minuteOfDay,
+
+        display:
+          displayTime(
+            time.minuteOfDay
+          ),
+
+        score:
+          Number(
+            time.score.toFixed(
+              3
+            )
+          ),
+
+        samples:
+          time.samples,
+
+        fallback:
+          time.fallback
+      })
     );
 
-  // All recommended times already passed.
+  console.log(
+    '[daily] Recommended times:',
+    recommendedTimes
+      .map(
+        time =>
+          `${time.display} HST`
+      )
+      .join(', ')
+  );
+
+  const slots =
+    todaySlots(
+      postingTimes
+    );
+
+  const state =
+    emptyDailyState(
+      dateKey
+    );
+
+  state.calculatedAt =
+    new Date()
+      .toISOString();
+
+  state.recommendedTimes =
+    recommendedTimes;
+
+  // If Railway was offline for too long and
+  // both calculated times already passed,
+  // don't schedule tomorrow early.
+  // Tomorrow gets its own calculation.
   if (
     slots.length ===
     0
@@ -1533,13 +1945,10 @@ async function scheduleTodayOnly() {
       completed:
         true,
 
-      recommendedTimes:
-        recommendedTimesForApi(
-          videos
-        ),
+      recommendedTimes,
 
       reason:
-        'Today’s posting times have already passed. The system will calculate new times tomorrow.'
+        'Today’s calculated posting times have already passed. New times will be calculated at the next Hawaii day.'
     };
   }
 
@@ -1588,6 +1997,13 @@ async function scheduleTodayOnly() {
     waiting.length ===
     0
   ) {
+    // Do NOT mark completed.
+    // This lets the system notice a newly
+    // uploaded private video later today.
+    saveDailyState(
+      state
+    );
+
     return {
       enabled:
         true,
@@ -1598,24 +2014,21 @@ async function scheduleTodayOnly() {
       scheduled:
         0,
 
-      recommendedTimes:
-        recommendedTimesForApi(
-          videos
-        ),
+      recommendedTimes,
 
       reason:
-        'No unscheduled private videos are waiting.'
+        'No unscheduled private videos are currently waiting.'
     };
   }
 
-  const errors = [];
+  const errors =
+    [];
 
   for (
     let index = 0;
     index < waiting.length;
     index++
   ) {
-    // User could click Stop while this is running.
     if (
       !automationEnabled()
     ) {
@@ -1663,7 +2076,14 @@ async function scheduleTodayOnly() {
           video.id,
 
         publishAt:
-          publishAt.toISOString()
+          publishAt
+            .toISOString(),
+
+        displayTime:
+          recommendedTimes[
+            index
+          ]?.display ||
+          null
       };
 
       state
@@ -1678,13 +2098,12 @@ async function scheduleTodayOnly() {
           scheduledVideo
         );
 
-      // Save immediately.
       saveDailyState(
         state
       );
 
       console.log(
-        `[scheduler] Scheduled ${scheduledVideo.title} at ${scheduledVideo.publishAt}`
+        `[daily] Scheduled "${scheduledVideo.title}" for ${scheduledVideo.displayTime} HST`
       );
 
     } catch (error) {
@@ -1706,7 +2125,7 @@ async function scheduleTodayOnly() {
         error.message;
 
       console.error(
-        '[scheduler]',
+        '[daily:schedule]',
         video.id,
         reason,
         message
@@ -1729,8 +2148,9 @@ async function scheduleTodayOnly() {
     }
   }
 
-  // CRITICAL:
-  // Never schedule more videos today.
+  // Once this daily run has assigned its
+  // available pair, it must not schedule
+  // another pair until tomorrow.
   state.completed =
     true;
 
@@ -1753,10 +2173,15 @@ async function scheduleTodayOnly() {
     completed:
       true,
 
-    recommendedTimes:
-      recommendedTimesForApi(
+    analyticsWeeks:
+      cfg.analyticsWeeks,
+
+    videosAnalyzed:
+      videosForAnalytics(
         videos
-      ),
+      ).length,
+
+    recommendedTimes,
 
     scheduledVideos:
       state.scheduled,
@@ -1766,7 +2191,7 @@ async function scheduleTodayOnly() {
 }
 
 // =====================================================
-// CANCEL TODAY'S PENDING VIDEOS
+// STOP / CANCEL TODAY'S FUTURE SCHEDULES
 // =====================================================
 
 async function cancelTodaysPending() {
@@ -1817,7 +2242,8 @@ async function cancelTodaysPending() {
 
   for (
     const id of
-      state.scheduledVideoIds
+      state
+        .scheduledVideoIds
   ) {
     const video =
       videoMap.get(id);
@@ -1826,7 +2252,6 @@ async function cancelTodaysPending() {
       continue;
     }
 
-    // Never undo an already-public video.
     if (
       video
         .status
@@ -1913,7 +2338,7 @@ async function cancelTodaysPending() {
 }
 
 // =====================================================
-// AUTOMATION START
+// START AUTOMATION
 // =====================================================
 
 app.post(
@@ -1923,16 +2348,17 @@ app.post(
     res
   ) => {
     try {
-      console.log(
-        '[automation] START requested'
-      );
-
       setAutomationEnabled(
         true
       );
 
-      // Immediately calculate today's schedule.
-      // No approval needed.
+      console.log(
+        '[automation] STARTED'
+      );
+
+      // If today hasn't been handled yet,
+      // calculate and schedule immediately.
+      // Future days run automatically.
       const result =
         await scheduleTodayOnly();
 
@@ -1944,7 +2370,7 @@ app.post(
           true,
 
         message:
-          'Automatic posting started.',
+          'Automatic posting started. Analytics will be recalculated every Hawaii day.',
 
         result
       });
@@ -1969,7 +2395,7 @@ app.post(
 );
 
 // =====================================================
-// AUTOMATION STOP
+// STOP AUTOMATION
 // =====================================================
 
 app.post(
@@ -1979,17 +2405,14 @@ app.post(
     res
   ) => {
     try {
-      console.log(
-        '[automation] STOP requested'
-      );
-
-      // Turn off first.
       setAutomationEnabled(
         false
       );
 
-      // Cancel today's manager-created
-      // scheduled releases that have not published.
+      console.log(
+        '[automation] STOPPED'
+      );
+
       const result =
         await cancelTodaysPending();
 
@@ -2047,6 +2470,9 @@ app.get(
 
       date,
 
+      analyticsWeeks:
+        cfg.analyticsWeeks,
+
       today:
         getDailyState(
           date
@@ -2056,7 +2482,7 @@ app.get(
 );
 
 // =====================================================
-// GEMINI
+// GEMINI MODEL DISCOVERY
 // =====================================================
 
 let cachedGeminiModel =
@@ -2167,7 +2593,7 @@ async function discoverGeminiModel() {
     Date.now();
 
   console.log(
-    `[gemini] Model: ${cachedGeminiModel}`
+    `[gemini] Using ${cachedGeminiModel}`
   );
 
   return cachedGeminiModel;
@@ -2254,7 +2680,7 @@ async function gemini(
 }
 
 // =====================================================
-// COMMENTS
+// COMMENT MANAGER
 // =====================================================
 
 async function classifyAndReply() {
@@ -2363,6 +2789,8 @@ Return ONLY one word:
 QUESTION
 SPAM
 NORMAL
+
+A question includes a request for information even without a question mark.
 
 Comment:
 ${JSON.stringify(
@@ -2488,7 +2916,7 @@ ${JSON.stringify(
 }
 
 // =====================================================
-// MAIN STATUS API
+// STATUS API
 // =====================================================
 
 app.get(
@@ -2503,6 +2931,16 @@ app.get(
 
       const videos =
         await allOwnedVideos();
+
+      const analyticsVideos =
+        videosForAnalytics(
+          videos
+        );
+
+      const recommendedTimes =
+        recommendedTimesForApi(
+          videos
+        );
 
       const privateQueue =
         videos
@@ -2558,15 +2996,6 @@ app.get(
       const date =
         todayKey();
 
-      const publicVideos =
-        videos.filter(
-          video =>
-            video
-              .status
-              ?.privacyStatus ===
-            'public'
-        );
-
       return res.json({
         connected:
           true,
@@ -2607,24 +3036,32 @@ app.get(
               .statistics
         },
 
-        // NEW DASHBOARD FORMAT
-        recommendedTimes:
-          recommendedTimesForApi(
-            videos
+        recommendedTimes,
+
+        // Keep this for older versions
+        // of the dashboard too.
+        bestHours:
+          recommendedTimes.map(
+            time =>
+              time.hour +
+              time.minute / 60
           ),
 
         recommendationSource: {
-          recentVideosUsed:
-            Math.min(
-              publicVideos.length,
-              cfg.recentVideoLimit
-            ),
+          analyticsWeeks:
+            cfg.analyticsWeeks,
+
+          videosAnalyzed:
+            analyticsVideos.length,
 
           postsPerDay:
             2,
 
           timezone:
-            cfg.timezone
+            cfg.timezone,
+
+          method:
+            'Historical public video performance'
         },
 
         privateQueue,
@@ -2658,11 +3095,11 @@ app.get(
 );
 
 // =====================================================
-// OLD SCHEDULE ENDPOINT
+// MANUAL SCHEDULE ENDPOINT
 // =====================================================
 
-// Kept so older dashboard calls do not break.
-// It STILL only schedules TODAY.
+// This does NOT schedule a week.
+// It only performs today's daily run.
 app.post(
   '/api/run/schedule',
   async (
@@ -2878,6 +3315,9 @@ app.get(
       timezone:
         cfg.timezone,
 
+      analyticsWeeks:
+        cfg.analyticsWeeks,
+
       postsPerDay:
         2
     });
@@ -2888,9 +3328,6 @@ app.get(
 // API 404
 // =====================================================
 
-// IMPORTANT:
-// Unknown /api routes return JSON instead of index.html.
-// This prevents the "<!DOCTYPE is not valid JSON" problem.
 app.use(
   '/api',
   (
@@ -2926,11 +3363,11 @@ const indexFile =
   );
 
 console.log(
-  `[website] ${publicDir}`
+  `[website] Public directory: ${publicDir}`
 );
 
 console.log(
-  `[website] index.html: ${fs.existsSync(
+  `[website] index.html exists: ${fs.existsSync(
     indexFile
   )}`
 );
@@ -2966,11 +3403,14 @@ app.get(
 );
 
 // =====================================================
-// AUTOMATIC LOOP
+// BACKGROUND AUTOMATION
 // =====================================================
 
 let cycleRunning =
   false;
+
+let lastSnapshotHour =
+  null;
 
 async function cycle() {
   if (
@@ -2991,18 +3431,70 @@ async function cycle() {
       return;
     }
 
+    const now =
+      hawaiiParts();
+
     console.log(
-      '[cycle] Running'
+      `[cycle] Hawaii ${todayKey()} ${String(
+        now.hour
+      ).padStart(
+        2,
+        '0'
+      )}:${String(
+        now.minute
+      ).padStart(
+        2,
+        '0'
+      )}`
     );
 
-    // ===============================================
-    // VIDEO AUTOMATION
-    // ===============================================
+    // =================================================
+    // COLLECT ANALYTICS THROUGHOUT THE WEEK
+    // =================================================
+
+    // Take one snapshot per Hawaii hour.
+    const snapshotHourKey =
+      `${todayKey()}-${now.hour}`;
+
+    if (
+      snapshotHourKey !==
+      lastSnapshotHour
+    ) {
+      try {
+        const videos =
+          await allOwnedVideos();
+
+        savePerformanceSnapshots(
+          videos
+        );
+
+        lastSnapshotHour =
+          snapshotHourKey;
+
+        console.log(
+          '[analytics] Performance snapshot saved'
+        );
+
+      } catch (error) {
+        console.error(
+          '[analytics]',
+          error.message
+        );
+      }
+    }
+
+    // =================================================
+    // DAILY SCHEDULER
+    // =================================================
 
     if (
       automationEnabled()
     ) {
       try {
+        // scheduleTodayOnly has a daily database lock.
+        // Therefore this can safely run every cycle.
+        // At midnight/new day, today's lock doesn't exist,
+        // so a fresh calculation occurs automatically.
         const result =
           await scheduleTodayOnly();
 
@@ -3022,13 +3514,13 @@ async function cycle() {
 
     } else {
       console.log(
-        '[cycle:schedule] Stopped'
+        '[cycle:schedule] Automatic posting stopped'
       );
     }
 
-    // ===============================================
+    // =================================================
     // COMMENTS
-    // ===============================================
+    // =================================================
 
     try {
       const result =
@@ -3054,7 +3546,9 @@ async function cycle() {
   }
 }
 
-// Check every 10 minutes.
+// Run every 10 minutes.
+// This makes midnight scheduling reliable:
+// the first cycle after 12:00 AM HST handles the new day.
 setInterval(
   cycle,
   10 *
@@ -3062,14 +3556,14 @@ setInterval(
     1000
 );
 
-// First automatic check 15 seconds after boot.
+// Also check shortly after Railway starts.
 setTimeout(
   cycle,
   15000
 );
 
 // =====================================================
-// START
+// START SERVER
 // =====================================================
 
 app.listen(
@@ -3093,11 +3587,27 @@ app.listen(
     );
 
     console.log(
-      `OAuth: ${cfg.redirectUri}`
+      `OAuth redirect: ${cfg.redirectUri}`
     );
 
     console.log(
       `Timezone: ${cfg.timezone}`
+    );
+
+    console.log(
+      `Analytics window: previous ${cfg.analyticsWeeks} weeks`
+    );
+
+    console.log(
+      'Videos per day: 2'
+    );
+
+    console.log(
+      'Scheduling: recalculated every Hawaii day'
+    );
+
+    console.log(
+      'Future days: NOT pre-scheduled'
     );
 
     console.log(
@@ -3106,18 +3616,6 @@ app.listen(
           ? 'RUNNING'
           : 'STOPPED'
       }`
-    );
-
-    console.log(
-      'Daily video maximum: 2'
-    );
-
-    console.log(
-      'Future days are NOT pre-scheduled.'
-    );
-
-    console.log(
-      'Each Hawaii day gets a fresh calculation.'
     );
 
     console.log(
